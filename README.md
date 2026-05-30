@@ -8,4 +8,4 @@ MCP server for Fedlex (Swiss federal law) — a mindful.bio product.
 
 ## License
 
-Proprietary © mindful.bio
+[MIT](./LICENSE) © mindful.bio
