@@ -1,6 +1,6 @@
 # mcp-fedlex - Vollständiger LikeC4-Architektur-Plan
 
-_Generiert am 2026-05-31 18:07:36 aus 3 Quelldateien:_ `specification.c4 model.c4 views.c4`
+_Generiert am 2026-05-31 20:14:43 aus 3 Quelldateien:_ `specification.c4 model.c4 views.c4`
 
 Föderierter "Agentic Legal Navigator" (MCP-Server, Rust/tokio). Der folgende
 Block enthält die komplette `specification`, das `model` und alle `views`.
@@ -470,7 +470,7 @@ views {
   // ========================================================
   view cqrs {
     title '2 - CQRS: Reader/Writer-Trennung & verteilter State'
-    description 'Der Schreibpfad (Ingestion, Writer) ist vom Lesepfad (MCP, Reader) entkoppelt: ETL pusht Events über den Broker an den Writer, der Redis & Qdrant befüllt. Der zustandslose Reader skaliert horizontal in Kubernetes und liest nur aus den geteilten Stores.'
+    description 'Der Schreibpfad (Ingestion, Writer) ist vom Lesepfad (MCP, Reader) entkoppelt: ETL pusht Events über den Broker an den Writer, der Redis (L2) und den Oxigraph-Graph befüllt und Embedding/Vektor an semantic-fedlex delegiert. Der zustandslose Reader skaliert horizontal in Kubernetes und liest nur aus den geteilten Stores.'
 
     include
       etl,
@@ -498,7 +498,7 @@ views {
   // ========================================================
   view plan of mcp {
     title '3 - Plan: MCP-Reader Architektur (Container)'
-    description 'Zustandsloser Reader: SSE-Transport (Rate Limiter & Auth), MCP-Registry (Tools/Resources/Prompts/Workspace + Temporal Resolver, Tool-Dispatcher & globale Graceful-Failure-Middleware), XML/AKN-Engine (Execution Sandbox), lokaler L1-DOM-Cache (moka), Federated URI-Resolver (Circuit Breaker), optionales GPU-Vector-RAG-Add-on und Observability-Layer. Persistenter State liegt extern in Redis (L2) / Qdrant.'
+    description 'Zustandsloser Reader: SSE-Transport (Rate Limiter & Auth), MCP-Registry (Tools/Resources/Prompts/Workspace + Temporal Resolver, Tool-Dispatcher & globale Graceful-Failure-Middleware), XML/AKN-Engine (Execution Sandbox), lokaler L1-DOM-Cache (moka), Federated URI-Resolver (Circuit Breaker), dünner Semantic-Search-Client (zu semantic-fedlex) und Observability-Layer. Persistenter State liegt extern in Redis (L2) + Oxigraph-Graph; Embedding/Vektor via semantic-fedlex.'
 
     include
       *,
@@ -521,7 +521,7 @@ views {
   // ========================================================
   view ingestion_plan of ingestionSystem {
     title '4 - Plan: Ingestion-Writer Architektur (Container)'
-    description 'Event-getriebener Schreibpfad: Event Consumer subscribed den Broker, der Parser lädt & verarbeitet das XML-Release aus der ETL, der GPU-Embedder vektorisiert die Knoten und der Indexer schreibt idempotent in Redis (DOM/Referenzen) und Qdrant (Embeddings).'
+    description 'Event-getriebener Schreibpfad: Event Consumer subscribed den Broker, der Parser lädt & verarbeitet das XML-Release aus der ETL, der Indexer schreibt idempotent nach Redis (DOM/Referenzen) und Oxigraph (JOLux-Graph) und delegiert Embedding+Vektor-Indexierung an semantic-fedlex (index-API).'
 
     include
       *,
