@@ -1,0 +1,195 @@
+// ============================================================
+// mcp-fedlex - Föderierter "Agentic Legal Navigator" (MCP-Server)
+// views.c4 (v6.0) - Vision-, CQRS-, Plan- und Komponenten-Sichten
+// ============================================================
+views {
+
+  // ========================================================
+  // 1. VISION VIEW (Context / Big Picture)
+  // ========================================================
+  view vision {
+    title '1 - Vision: Föderierter Agentic Legal Navigator (Context)'
+    description 'Das große Bild. Autonome LLM-Agenten sprechen via SSE mit dem zustandslosen MCP-Reader (Auth gegen IdP/Vault). Ein eigenständiges, event-getriebenes Ingestion-System (Writer) konsumiert New-Release-Events vom Broker und befüllt die verteilten Stores (Redis/Qdrant), aus denen der Reader liest. Föderale & internationale Rechtsgebiete werden dynamisch über das LOD-Netzwerk integriert, alles lückenlos in die Observability exportiert.'
+
+    include
+      llmAgent,
+      legalEngineer,
+      mcp,
+      ingestionSystem,
+      etl,
+      messageBroker,
+      sharedCache,
+      semanticService,
+      sharedGraphStore,
+      idpVault,
+      lodFederation,
+      lodFederation.cantonLod,
+      lodFederation.communeLod,
+      lodFederation.foreignLod,
+      observabilityStack
+
+    style * {
+      opacity 75%
+    }
+    style lodFederation._ {
+      color amber
+    }
+  }
+
+  // ========================================================
+  // 2. CQRS VIEW (Reader/Writer-Trennung & verteilter State)
+  // ========================================================
+  view cqrs {
+    title '2 - CQRS: Reader/Writer-Trennung & verteilter State'
+    description 'Der Schreibpfad (Ingestion, Writer) ist vom Lesepfad (MCP, Reader) entkoppelt: ETL pusht Events über den Broker an den Writer, der Redis & Qdrant befüllt. Der zustandslose Reader skaliert horizontal in Kubernetes und liest nur aus den geteilten Stores.'
+
+    include
+      etl,
+      messageBroker,
+      ingestionSystem,
+      sharedCache,
+      semanticService,
+      sharedGraphStore,
+      mcp,
+      llmAgent
+
+    style mcp {
+      color sky
+    }
+    style ingestionSystem {
+      color red
+    }
+    style sharedCache, sharedGraphStore, messageBroker {
+      color indigo
+    }
+  }
+
+  // ========================================================
+  // 3. PLAN VIEW (Container des READER / MCP)
+  // ========================================================
+  view plan of mcp {
+    title '3 - Plan: MCP-Reader Architektur (Container)'
+    description 'Zustandsloser Reader: SSE-Transport (Rate Limiter & Auth), MCP-Registry (Tools/Resources/Prompts/Workspace + Temporal Resolver, Tool-Dispatcher & globale Graceful-Failure-Middleware), XML/AKN-Engine (Execution Sandbox), lokaler L1-DOM-Cache (moka), Federated URI-Resolver (Circuit Breaker), optionales GPU-Vector-RAG-Add-on und Observability-Layer. Persistenter State liegt extern in Redis (L2) / Qdrant.'
+
+    include
+      *,
+      llmAgent,
+      idpVault,
+      sharedCache,
+      semanticService,
+      sharedGraphStore,
+      messageBroker,
+      lodFederation,
+      observabilityStack
+
+    style mcp.semanticClient {
+      opacity 40%
+    }
+  }
+
+  // ========================================================
+  // 4. INGESTION PLAN VIEW (Container des WRITER)
+  // ========================================================
+  view ingestion_plan of ingestionSystem {
+    title '4 - Plan: Ingestion-Writer Architektur (Container)'
+    description 'Event-getriebener Schreibpfad: Event Consumer subscribed den Broker, der Parser lädt & verarbeitet das XML-Release aus der ETL, der GPU-Embedder vektorisiert die Knoten und der Indexer schreibt idempotent in Redis (DOM/Referenzen) und Qdrant (Embeddings).'
+
+    include
+      *,
+      etl,
+      messageBroker,
+      sharedCache,
+      semanticService,
+      sharedGraphStore,
+      observabilityStack
+  }
+
+  // ========================================================
+  // 5. Komponenten-Sichten (eine Ebene tiefer)
+  // ========================================================
+
+  // 5a - Transport: Agent-Defense (Rate Limiting) + Auth
+  view component_transport of mcp.transport {
+    title '5a - Edge: Rate Limiting, Auth & Identity'
+    description 'Agent-Defense an der Eingangstür: der Rate Limiter drosselt Tool-Aufrufe pro Session/Tenant (Token-Bucket), bevor sie weitergereicht werden; der Auth-Resolver validiert API-Keys gegen den IdP/Vault und bezieht die RBAC-Rolle.'
+    include
+      *,
+      llmAgent,
+      idpVault,
+      mcp.mcpRegistry
+  }
+
+  // 5b - MCP-Registry: Tools (RBAC-Pools) + Workspace + Resources + Prompts + Temporal + Tool-RAG
+  view component_mcp_registry of mcp.mcpRegistry {
+    title '5b - MCP-Registry (Tools / Workspace / Temporal / Tool-RAG)'
+    description 'Volle MCP-Oberfläche: trait McpTool + RBAC-Tool-Pools (LocalNavigation, LodFederation, Validation, Workspace-Scratchpad), Resources, Prompts, globale Graceful-Failure-Middleware, der Temporal Resolver (Point-in-Time / valid_as_of) und der skalierungs-getriggerte Dynamic Tool Dispatcher (Tool-RAG, deferred). Der Workspace-Pool persistiert Session-State in Redis.'
+    include
+      *,
+      mcp.transport,
+      mcp.xmlEngine,
+      mcp.lodGateway,
+      mcp.semanticClient,
+      sharedCache
+  }
+
+  // 5c - ELI/ECLI-Resolver: lokale Graph-Walks + Circuit Breaking
+  view component_lod_gateway of mcp.lodGateway {
+    title '5c - ELI/ECLI-Resolver, JOLux-Graph & Circuit Breaking'
+    description 'Der ELI/ECLI-Resolver nutzt ELI als gemeinsames URI-Schema (Bund/Kanton/EU) und entscheidet zwischen lokalem JOLux-Graph-Store (SPARQL-Walks, deterministisch), Distributed Cache und externem Proxy. Der Circuit Breaker blockt defekte/langsame Endpunkte sofort ab, bevor der HTTP-Connector-Pool externe LOD-Quellen anspricht.'
+    include
+      *,
+      mcp.mcpRegistry,
+      sharedCache,
+      sharedGraphStore,
+      lodFederation,
+      lodFederation.cantonLod,
+      lodFederation.communeLod,
+      lodFederation.foreignLod
+  }
+
+  // 5d - Agentic Design & Query-Sandboxing der XML/AKN-Engine
+  view component_agentic_engine of mcp.xmlEngine {
+    title '5d - XML/AKN-Engine: Makro-Tools, Pagination & Execution Sandbox'
+    description 'LLM-Optimierung: Paginierung gegen Context-Overflow, Makro-Tools (XML-Diffing zu destilliertem Markdown) und die Execution Sandbox & Timeout Guard, die halluzinierte XPath/Regex-Queries via spawn_blocking + harter Deadline gegen DoS absichert. Liest fertig geparste Bäume aus dem lokalen L1-Cache (Miss -> L2/Redis).'
+    include
+      *,
+      mcp.mcpRegistry,
+      mcp.l1Cache,
+      sharedCache
+  }
+
+  // 5g - Two-Tier Caching (L1/L2) & Broker-Invalidierung
+  view component_caching {
+    title '5g - Two-Tier Caching (L1/L2) & Invalidierung'
+    description 'L1 (moka, pro Reader-Pod) hält fertig geparste Rust-DOM-Bäume; bei Miss lädt L1 rohe AKN-Bytes aus L2 (Redis). Schreibt der Writer eine neue bi-temporale Version, publiziert er ein Invalidierungs-Event über den Broker, das die L1-Caches aller Reader gezielt evictet - so bleibt der Reader zustandslos und trotzdem konsistent.'
+    include
+      mcp.xmlEngine,
+      mcp.l1Cache,
+      sharedCache,
+      messageBroker,
+      ingestionSystem.indexWriter
+  }
+
+  // 5e - Semantic-Search-Client (zu semantic-fedlex)
+  view component_semantic_client of mcp.semanticClient {
+    title '5e - Semantic-Search-Client (zu semantic-fedlex)'
+    description 'Dünner Client ohne GPU: reicht die Agenten-Query inkl. Stichtag an semantic-fedlex.search() weiter und mappt Top-K-Treffer zurück. Fällt der Dienst aus, degradiert mcp graceful auf strukturelle Navigation.'
+    include
+      *,
+      mcp.mcpRegistry,
+      semanticService
+  }
+
+  // 5f - Observability als Cross-Cutting Concern
+  view component_observability of mcp.observabilityLayer {
+    title '5f - Observability & PII-Scrubbing (Cross-Cutting)'
+    description 'Alle Reader-Container (Transport, MCP-Registry, XML-Engine, LOD-Gateway) senden Spans & Metriken an den OTel-Layer; der Writer exportiert direkt. Vor dem OTLP-Export an die externen Dashboards maskiert der PII-Scrubber Mandanten-Daten (Compliance-Gate, ADR-001).'
+    include
+      *,
+      mcp.transport,
+      mcp.mcpRegistry,
+      mcp.xmlEngine,
+      mcp.lodGateway,
+      observabilityStack
+  }
+}

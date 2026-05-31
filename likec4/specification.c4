@@ -1,0 +1,115 @@
+// ============================================================
+// mcp-fedlex - Föderierter "Agentic Legal Navigator" (MCP-Server)
+// specification.c4 (v6.0) - Element-, Tag- und Relationship-Arten
+// ============================================================
+specification {
+
+  // ---------- Logische Element-Arten ----------
+  element actor {
+    notation 'Akteur (Agent / Mensch)'
+    style {
+      shape person
+      color secondary
+    }
+  }
+
+  element external {
+    notation 'Externer Dienst / fremde Datenquelle / verteilter Store'
+    style {
+      shape cylinder
+      color muted
+    }
+  }
+
+  element system {
+    notation 'System (eigenständig deploybar)'
+    style {
+      shape rectangle
+    }
+  }
+
+  element container {
+    notation 'Container (Rust-Modul / K8s-Workload)'
+    style {
+      shape rectangle
+      color blue
+    }
+  }
+
+  element component {
+    notation 'Komponente (Rust-Submodul / Trait)'
+    style {
+      shape component
+      color sky
+    }
+  }
+
+  element store {
+    notation 'In-Memory / Embedded Store'
+    style {
+      shape storage
+      color indigo
+    }
+  }
+
+  // ---------- Tags ----------
+  tag mvp {
+    color #2563eb
+  }
+  tag optional {
+    color #6b7280
+  }
+  tag federation {
+    color #d97706
+  }
+  tag security {
+    color #dc2626
+  }
+  tag observability {
+    color #16a34a
+  }
+  tag agentic {
+    color #7c3aed
+  }
+  tag reader {
+    color #0ea5e9
+  }
+  tag writer {
+    color #db2777
+  }
+  tag state {
+    color #4f46e5
+  }
+  tag deferred {
+    color #9ca3af
+  }
+
+  // ---------- Relationship-Arten ----------
+  relationship sse {
+    notation 'HTTP Server-Sent Events (JSON-RPC)'
+  }
+  relationship http {
+    notation 'HTTP / SPARQL Connector'
+    color amber
+  }
+  relationship feed {
+    notation 'Datenzufuhr (Korpus / RDF)'
+  }
+  relationship event {
+    notation 'Event (Pub/Sub)'
+    color indigo
+    line dashed
+  }
+  relationship data {
+    notation 'Verteilter State-/Daten-Zugriff (Redis/Qdrant)'
+    color indigo
+  }
+  relationship trace {
+    notation 'OTel Span / Metrik Export'
+    color green
+    line dotted
+  }
+  relationship internal {
+    notation 'Interner Async-Call (tokio)'
+  }
+}

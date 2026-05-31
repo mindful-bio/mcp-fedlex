@@ -1,0 +1,294 @@
+// ============================================================
+// mcp-fedlex - Föderierter "Agentic Legal Navigator" (MCP-Server)
+// model.c4 (v6.0) - CQRS / K8s & Day-2 Operations Readiness
+// ============================================================
+model {
+
+  // ========================================================
+  // Akteure
+  // ========================================================
+  llmAgent = actor 'Autonomer LLM-Agent' {
+    #agentic
+    description 'Externer KI-Agent (z.B. Claude/GPT). Baut SSE-Verbindung auf, authentifiziert sich beim Connect und navigiert anschließend autonom durch den föderierten Rechts-Graphen - ausschließlich über MCP Tool-Calls.'
+  }
+
+  legalEngineer = actor 'Legal Engineer / SRE' {
+    description 'Mensch im Betrieb. Überwacht Agenten-Loops, Payload-Sizes und Latenzen in den Observability-Dashboards und tuned RBAC-Rollen, Quotas & Tool-Pools.'
+  }
+
+  // ========================================================
+  // Externe Systeme, Broker, verteilte Stores & Datenquellen
+  // ========================================================
+  etl = external 'Lokale ETL-Pipeline' {
+    #federation
+    description 'Interne Pipeline. Normalisiert Roh-Rechtsdaten (Fedlex) nach Akoma Ntoso (AKN) / Jolux - durchgängig über ELI identifiziert (Fedlex publiziert CH-Bundesrecht ELI-konform). Versioniert XML-Korpora + RDF-Tripel und publiziert bei jedem neuen Release ein Event an den Broker.'
+    technology 'AKN / Jolux / RDF'
+  }
+
+  messageBroker = external 'Event Broker (Kafka/NATS)' {
+    #state
+    description 'Entkoppelt Producer (ETL) und Consumer (Ingestion). Trägt "New-Release"-Events und ersetzt ineffizientes Polling durch Push-Semantik.'
+    technology 'Apache Kafka / NATS JetStream'
+  }
+
+  sharedCache = external 'Distributed Cache (Redis)' {
+    #state
+    description 'Verteilter In-Memory-Store & L2-Cache. Hält rohe AKN-Bytes/Referenzen bi-temporal versioniert (Key = ELI + valid_as_of) sowie serverseitigen Agent-Session-State (Scratchpad). Löst L1-Misses der Reader auf und ermöglicht zustandsloses, horizontales Skalieren.'
+    technology 'Redis Cluster'
+  }
+
+  semanticService = external 'semantic-fedlex (Embedding & Vector Search)' {
+    #optional
+    description 'Eigenständiger GPU-Dienst (eigenes Repo). Kapselt Embedding-Modell UND Vektor-DB: index(text, eli, valid_as_of) für den Writer, search(query, as_of, top_k) für den Reader. Garantiert Index/Query-Modell-Konsistenz. Optional - fällt er aus, navigiert mcp strukturell (Cache/Graph) weiter.'
+    technology 'gRPC / HTTP'
+  }
+
+  sharedGraphStore = external 'Distributed Graph Store (Oxigraph/RDF)' {
+    #state, #federation
+    description 'RDF-Triplestore mit dem vom Writer extrahierten JOLux-Graphen. Ermöglicht lokale, deterministische Graph-Walks (z.B. "welche Verordnung stützt sich auf dieses Bundesgesetz?") via SPARQL - ohne teuren externen Roundtrip. Schließt die Graph-Lücke des reinen KV-L2 und macht die LOD-Vision lokal performant.'
+    technology 'Oxigraph (SPARQL/RDF)'
+  }
+
+  idpVault = external 'Identity Provider & Secret Vault' {
+    #security
+    description 'Zentrale Identitäts- & Secret-Verwaltung (z.B. Keycloak / HashiCorp Vault). Validiert API-Keys und liefert die RBAC-Rollen, aus denen der zulässige Tool-Pool abgeleitet wird.'
+    technology 'Keycloak / HashiCorp Vault'
+  }
+
+  observabilityStack = external 'Observability-Dashboards' {
+    #observability
+    description 'OTel-Backends für LLM-Observability: Langfuse, Arize Phoenix, Jaeger. Empfängt Traces, Spans und Metriken über OTLP.'
+    technology 'OpenTelemetry / OTLP'
+  }
+
+  // Föderiertes LOD-Netzwerk als vernetzter globaler Graph (Linked Open Data)
+  lodFederation = external 'Föderiertes LOD-Netzwerk' {
+    #federation
+    description 'Recht als vernetzter globaler Graph (LOD), aufgelöst über den European Legislation Identifier (ELI) als gemeinsames URI-Schema von Fedlex/Bund über die Kantone bis zur EU (plus ECLI für Rechtsprechung). Föderale Ebenen nach innen, fremde Rechtsgebiete nach außen.'
+
+    cantonLod = external 'Kantonale LOD-Endpunkte' {
+      description 'Föderale Ebene nach innen: kantonale Rechtssammlungen via eigene SPARQL/HTTP-Endpunkte.'
+    }
+    communeLod = external 'Kommunale LOD-Endpunkte' {
+      description 'Gemeinde-Ebene: kommunale Erlasse, sofern als LOD publiziert.'
+    }
+    foreignLod = external 'EU / Internationale LOD' {
+      description 'Fremde Rechtsgebiete nach außen: EUR-Lex (ELI), internationale Quellen.'
+    }
+  }
+
+  // ========================================================
+  // System: Legal Data Ingestion (WRITER) - CQRS Schreibpfad
+  // ========================================================
+  ingestionSystem = system 'Legal Data Ingestion (Writer)' {
+    #writer, #federation
+    description 'Eigenständig deploybarer Writer (CQRS-Schreibseite). Event-getrieben: konsumiert New-Release-Events, parst XML-Releases und befüllt die verteilten Stores. Skaliert unabhängig vom Reader.'
+    technology 'Rust / tokio'
+
+    eventConsumer = container 'Event Consumer' {
+      #writer
+      description 'Subscribed den Event-Broker, dedupliziert und triggert pro New-Release-Event eine asynchrone Ingestion-Pipeline.'
+      technology 'Rust / rdkafka | async-nats'
+    }
+    ingestParser = container 'AKN/Jolux Parser (Writer)' {
+      #writer
+      description 'Lädt das neue XML-Release aus der ETL und parst gigabytegroße AKN/Jolux-Dokumente nativ in DOM-Bäume & Graph-Knoten.'
+      technology 'Rust / quick-xml / roxmltree'
+    }
+    indexWriter = container 'Cache & Graph Indexer' {
+      #writer, #state
+      description 'Schreibt geparste DOM-Bäume/Referenzen nach Redis und den extrahierten JOLux-Graphen (RDF-Triples) nach Oxigraph - bi-temporal & append-only (jede Version bleibt erhalten, valid_as_of/transaction_time pro Knoten). Embedding + Vektor-Indexierung delegiert an semantic-fedlex (index-API). Publiziert nach jedem Write ein Cache-Invalidierungs-Event an den Broker.'
+      technology 'Rust / tokio'
+    }
+
+    // ----- Ingestion-interne Pipeline -----
+    eventConsumer -[internal]-> ingestParser 'triggert Parsing pro Release'
+    ingestParser -[internal]-> indexWriter 'übergibt geparste DOM-Bäume & extrahierte Knoten'
+  }
+
+  // ========================================================
+  // System: Agentic Legal Navigator (READER) - zustandslos
+  // ========================================================
+  mcp = system 'Agentic Legal Navigator (MCP-Server)' {
+    #mvp, #reader
+    description 'Zustandsloser, horizontal skalierbarer MCP-Reader (CQRS-Leseseite). 100% Rust/tokio. Hält keinen lokalen State - liest ausschließlich aus den verteilten Stores.'
+    technology 'Rust / tokio'
+
+    // ----- Transport, Auth & Agent-Defense -----
+    transport = container 'SSE-Transport & Auth-Gateway' {
+      #security
+      description 'HTTP-SSE-Endpunkt (axum) als einzige Eingangstür. Terminiert Agenten-Verbindungen, authentifiziert, drosselt und leitet daraus die RBAC-Rolle ab, die an die MCP-Registry weitergeht.'
+      technology 'Rust / axum / SSE'
+
+      sseHandler = component 'SSE Session Handler' {
+        description 'Hält langlebige SSE-Streams pro Agent und (de)serialisiert JSON-RPC MCP-Nachrichten.'
+      }
+      rateLimiter = component 'Rate Limiter & Quotas' {
+        #security
+        description 'Agent-Defense: drosselt Tool-Aufrufe pro SSE-Session/Tenant (Token-Bucket), bevor sie zur Registry durchgereicht werden - schützt externe APIs vor Endlosschleifen und begrenzt Kosten.'
+      }
+      authRbac = component 'Auth & RBAC-Resolver' {
+        #security
+        description 'Validiert Credentials beim Connect gegen den IdP/Vault und mappt den Agenten auf eine Rolle (z.B. reader / navigator / validator).'
+      }
+    }
+
+    // ----- MCP-Registry (Tools + Resources + Prompts + Workspace) -----
+    mcpRegistry = container 'MCP-Registry' {
+      #security
+      description 'Zentrale Registry für die volle MCP-Oberfläche: Tools (in RBAC-Pools inkl. Workspace), Resources und Prompts. tools/list liefert dynamisch NUR den zur Rolle passenden Pool (least privilege). Beherbergt die globale Graceful-Failure-Middleware.'
+      technology 'Rust / trait McpTool'
+
+      mcpToolTrait = component 'trait McpTool' {
+        description 'Abstrahiert Tool-Ausführung und JSON-Schema-Generierung: jedes Tool implementiert execute() + schema().'
+      }
+      temporalResolver = component 'Temporal Resolver (Point-in-Time)' {
+        #agentic
+        description 'Bi-Temporalität: versieht jede Abfrage (per ELI) an Cache/Graph/Vector-DB mit einem valid_as_of-Zeitstempel (plus transaction_time für rückwirkende Korrekturen) und mappt auf die ELI-konsolidierte Fassung des Stichtags statt blind der neuesten - juristisch zwingend.'
+      }
+      toolDispatcher = component 'Dynamic Tool Dispatcher (Tool-RAG)' {
+        #deferred
+        description 'Skalierungs-getriggert (Bund + 26 Kantone + EU): lädt per Intent-Analyse nur die relevantesten Tools statt 50-200 Schemas. CAVEAT: viele MCP-Clients lesen die Tool-Liste statisch beim Connect (notifications/tools/list_changed wird ignoriert) - daher bevorzugt generische, parametrisierte Tools (z.B. query_canton_law(canton: CantonEnum, ...)) mit Least-Privilege in der Argument-Validierung statt dynamischem Ein-/Ausblenden. Bleibt #deferred.'
+      }
+      poolLocal = component 'Pool::LocalNavigation' {
+        description 'Tools zur Navigation im Cache (AKN-Bäume durchlaufen, Knoten/Artikel lesen).'
+      }
+      poolLod = component 'Pool::LodFederation' {
+        #federation
+        description 'Tools für föderierte URI-Auflösung über Kantone, Gemeinden und Ausland.'
+      }
+      poolValidation = component 'Pool::Validation' {
+        description 'Tools für Schema-/Konsistenz-Validierung und XML-Diffing.'
+      }
+      poolWorkspace = component 'Pool::Workspace (Scratchpad)' {
+        #agentic
+        description 'Stateful Workspace-Tools: Agenten legen Zwischenergebnisse, Notizen und LOD-Bookmarks serverseitig im Session-State (Redis) ab und entlasten so ihr Context-Window bei langen Recherchen.'
+      }
+      mcpResources = component 'MCP Resources' {
+        description 'Statische, direkt lesbare Ressourcen (z.B. ELI-Referenzlisten/Kataloge, Schema-Definitionen), die der Agent ohne Tool-Aufruf über stabile ELI-URIs konsumieren kann.'
+      }
+      mcpPrompts = component 'MCP Prompts' {
+        #agentic
+        description 'Vordefinierte Agenten-Instruktionen/Workflows (z.B. "Versionsvergleich erstellen") als wiederverwendbare Prompt-Templates.'
+      }
+      gracefulFailure = component 'Graceful-Failure-Middleware' {
+        #agentic
+        description 'Globale Middleware: fängt ALLE Fehler (Netzwerk-Timeouts, GPU-Fehler, XML-Errors, Panics) ab und wandelt sie in lenkende JSON-Strings { error, hint } für das LLM um - niemals ein roher Crash ans LLM.'
+      }
+    }
+
+    // ----- XML / AKN-Engine (Read-Path Heavy Lifting) -----
+    xmlEngine = container 'XML / AKN-Engine' {
+      #agentic
+      description 'Native Rust-Verarbeitung der im Cache liegenden AKN/Jolux-DOM-Bäume. Makro-Tools erledigen Heavy-Lifting (z.B. XML-Diffing); das LLM erhält ausschließlich destilliertes Markdown.'
+      technology 'Rust / quick-xml / roxmltree'
+
+      macroTools = component 'Makro-Tool-Engine' {
+        description 'Verdichtet teure Operationen (Version-Diff, Strukturanalyse) zu destilliertem Markdown statt Roh-XML.'
+      }
+      paginator = component 'Paginierungs-Guard' {
+        #agentic
+        description 'Schützt vor Context-Window-Overflow: limitierte Rückgaben inkl. Metadaten { has_more, next_page }.'
+      }
+      execSandbox = component 'Execution Sandbox & Timeout Guard' {
+        #security
+        description 'Schützt vor XPath/Regex-DoS halluzinierter Queries: führt jeden LLM-generierten Such-Query via spawn_blocking auf einem separaten Thread aus (NICHT im async-Reactor, sonst greift kein Timeout!), mit harter Wall-Clock-Deadline (~2s) und Linearzeit-Regex (rust regex + size_limit). Bei Abbruch Graceful-Failure: "Suchanfrage zu komplex, bitte präziser formulieren".'
+      }
+    }
+
+    // ----- Federated URI-Resolver (LOD-Gateway) -----
+    lodGateway = container 'Federated URI-Resolver (LOD-Gateway)' {
+      #federation
+      description 'Löst rechtliche Referenzen über ELI/ECLI auf und routet intelligent: lokale JOLux-Graph-Walks im RDF-Store / Distributed Cache ODER Proxy via HTTP-Connectoren an externe LOD-Endpunkte. ELI ist das gemeinsame Schema, das dieselbe Resolver-Logik von Bund über Kantone bis EU trägt; nur föderale/fremde Quellen gehen nach außen. Herkunft wird dem Agenten abstrahiert.'
+      technology 'Rust / reqwest'
+
+      eliResolver = component 'ELI/ECLI Resolver' {
+        #federation
+        description 'Kern der Föderation: normalisiert ELI-Templates (Erlasse) und ECLI (Rechtsprechung) als gemeinsames URI-Schema über alle Ebenen (Bund/Kanton/EU), leitet daraus den Stichtag (konsolidierte Fassung) ab und entscheidet pro Referenz lokal-vs-extern.'
+      }
+      circuitBreaker = component 'Circuit Breaker' {
+        #federation
+        description 'Schützt vor kaskadierenden Ausfällen: blockt langsame/defekte externe Endpunkte sofort ab (open/half-open/closed) und verhindert das Aufstauen von tokio-Tasks.'
+      }
+      httpConnector = component 'HTTP-Connector-Pool' {
+        #federation
+        description 'Async HTTP/SPARQL-Clients zu kantonalen, kommunalen und ausländischen LOD-Endpunkten - nur über den Circuit Breaker erreichbar.'
+      }
+    }
+
+    // ----- Semantik-Client (dünn, zu semantic-fedlex) -----
+    semanticClient = container 'Semantic-Search-Client' {
+      #optional
+      description 'Dünner Client (KEINE GPU) zu semantic-fedlex. Reicht die Agenten-Query inkl. Stichtag an search() weiter und mappt die Top-K-Treffer zurück. Fällt der Dienst aus, degradiert mcp graceful auf rein strukturelle Navigation.'
+      technology 'Rust / gRPC-Client'
+    }
+
+    // ----- L1 Cache (lokal, pro Reader-Pod) -----
+    l1Cache = store 'L1 DOM-Cache (moka)' {
+      #state
+      description 'Pfeilschneller lokaler L1: hält fertig geparste Rust-DOM-Bäume artikel-/abschnittsgranular (nicht ganze 50-MB-Gesetze) im RAM. Single-Flight via moka get_with (ein Parse pro Key/Pod -> kein Cache-Stampede). Weigher nach echter Allokationsgröße mit absolutem RAM-Budget gegen OOM. Reiner, aus L2 rekonstruierbarer Cache (Stateless gewahrt); Invalidierung sofort via Broker-Event, Re-Population koaliert.'
+      technology 'Rust / moka'
+    }
+
+    // ----- LLM Observability -----
+    observabilityLayer = container 'Tracing- & OTel-Layer' {
+      #observability
+      description 'Lückenloses Tracing jeder Aktion via #[tracing::instrument]. Exportiert Spans/Metriken via tracing-opentelemetry. Misst Payload-Sizes, Latenzen (Rust vs. LLM-Thinking), Argumente/Antworten.'
+      technology 'Rust / tracing / tracing-opentelemetry'
+
+      piiScrubber = component 'PII-Scrubber (Compliance-Gate)' {
+        #security
+        description 'Vertrauensgrenze vor dem OTLP-Export: allowlist-basierte Redaction-Middleware, die Mandanten-PII (Namen/Firmen) am Entstehungspunkt via Sensitive<T>-Newtypes maskiert. Verhindert, dass vertrauliche Falldaten in Cloud-Backends (Langfuse/Datadog) gelangen - Berufsgeheimnis (Art. 321 StGB) / revDSG. Siehe ADR-001.'
+      }
+    }
+
+    // ----- Interne Beziehungen (tokio async) -----
+    transport -[internal]-> mcpRegistry 'gedrosselte, validierte Tool-Calls + RBAC-Rolle'
+    mcpRegistry -[internal]-> xmlEngine 'führt lokale Navigations-/Validierungs-Tools aus'
+    mcpRegistry -[internal]-> lodGateway 'führt Föderations-Tools aus'
+    mcpRegistry -[internal]-> semanticClient 'optionale semantische Suche'
+    xmlEngine -[internal]-> l1Cache 'liest fertig geparsten Rust-DOM (L1-Hit)'
+
+    // ----- Observability-Verkabelung (Cross-Cutting) -----
+    transport -[trace]-> observabilityLayer 'Spans & Metriken'
+    mcpRegistry -[trace]-> observabilityLayer 'Spans & Metriken'
+    xmlEngine -[trace]-> observabilityLayer 'Spans & Metriken'
+    lodGateway -[trace]-> observabilityLayer 'Spans & Metriken'
+  }
+
+  // ========================================================
+  // System-übergreifende Beziehungen
+  // ========================================================
+
+  // -- Reader-Pfad (Agent -> MCP) --
+  llmAgent -[sse]-> transport 'verbindet, authentifiziert & ruft Tools'
+  authRbac -[http]-> idpVault 'Validierung von API-Keys und Bezug von RBAC-Rollen'
+
+  // -- Reader: Two-Tier Caching (L1 lokal -> L2 Redis) & verteilter State --
+  l1Cache -[data]-> sharedCache 'L2-Fallback: lädt rohe AKN-Bytes bei L1-Miss'
+  l1Cache -[event]-> messageBroker 'abonniert Cache-Invalidierung (evict bei neuer Version)'
+  lodGateway -[data]-> sharedCache 'liest/cached aufgelöste LOD-Referenzen'
+  mcpRegistry -[data]-> sharedCache 'persistiert Agent-Session-Scratchpad (Workspace)'
+  semanticClient -[http]-> semanticService 'search(query, as_of, top_k) - stichtagsgenaue Top-K-Suche'
+  lodGateway -[data]-> sharedGraphStore 'lokale JOLux-Graph-Walks (SPARQL, deterministisch)'
+
+  // -- Föderierte Auflösung nach außen --
+  lodGateway -[http]-> cantonLod 'proxt ELI-Auflösung'
+  lodGateway -[http]-> communeLod 'proxt ELI-Auflösung'
+  lodGateway -[http]-> foreignLod 'proxt ELI/CELEX-Auflösung (EUR-Lex)'
+
+  // -- Event-Driven Writer-Pfad (Push statt Poll) --
+  etl -[event]-> messageBroker 'publiziert New-Release-Events'
+  eventConsumer -[event]-> messageBroker 'konsumiert New-Release-Events (subscribe)'
+  ingestParser -[feed]-> etl 'lädt neues XML-Release'
+  indexWriter -[data]-> sharedCache 'schreibt DOM-Bäume & Referenzen (append-only)'
+  indexWriter -[http]-> semanticService 'index(text, eli, valid_as_of) - Embedding+Vektor ausgelagert'
+  indexWriter -[data]-> sharedGraphStore 'materialisiert extrahierten JOLux-Graph (RDF-Triples)'
+  indexWriter -[event]-> messageBroker 'publiziert Cache-Invalidierungs-Events'
+
+  // -- Observability (Reader + Writer + Mensch) --
+  observabilityLayer -[trace]-> observabilityStack 'exportiert Traces & Metriken (OTLP)'
+  eventConsumer -[trace]-> observabilityStack 'Ingestion-Spans & Lag-Metriken'
+  indexWriter -[trace]-> observabilityStack 'Write-Throughput & Latenzen'
+  legalEngineer -> observabilityStack 'überwacht Agenten-Loops, Quotas & Ingestion-Lag'
+}
