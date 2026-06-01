@@ -1,0 +1,37 @@
+[package]
+name = "mcp-reader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "mcp-reader"
+path = "src/main.rs"
+
+[lib]
+name = "mcp_reader"
+path = "src/lib.rs"
+
+[dependencies]
+fedlex-core = { path = "../fedlex-core" }
+fedlex-store = { path = "../fedlex-store", features = ["redis-store"] }
+fedlex-telemetry = { path = "../fedlex-telemetry" }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["macros", "parsing", "formatting"] }
+moka = { version = "0.12", features = ["future"] }
+regex = "1"
+axum = "0.7"
+futures = "0.3"
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["redis"] }
+tower = { version = "0.5", features = ["util"] }

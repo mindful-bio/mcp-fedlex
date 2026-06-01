@@ -1,9 +1,8 @@
-# mcp-fedlex - Vollständiger LikeC4-Architektur-Plan
+# mcp-fedlex - Vollstaendiger LikeC4-Architektur-Plan
 
-_Generiert am 2026-05-31 20:14:43 aus 3 Quelldateien:_ `specification.c4 model.c4 views.c4`
+_Generiert am 2026-06-01 13:36:39 aus 3 Quelldateien:_ `specification.c4 model.c4 views.c4`
 
-Föderierter "Agentic Legal Navigator" (MCP-Server, Rust/tokio). Der folgende
-Block enthält die komplette `specification`, das `model` und alle `views`.
+MCP Server for Fedlex. Der folgende Block enthaelt die komplette `specification`, das `model` und alle `views`.
 
 ## specification.c4
 
@@ -130,7 +129,8 @@ specification {
 ```likec4
 // ============================================================
 // mcp-fedlex - Föderierter "Agentic Legal Navigator" (MCP-Server)
-// model.c4 (v6.0) - CQRS / K8s & Day-2 Operations Readiness
+// model.c4 (v6.1) - CQRS / K8s & Day-2 Operations Readiness
+// v6.1: verteiltes Quota, Provenance-Envelope, Embedding-Outbox, DLQ (ADR-002..004)
 // ============================================================
 model {
 
@@ -227,13 +227,20 @@ model {
     }
     indexWriter = container 'Cache & Graph Indexer' {
       #writer, #state
-      description 'Schreibt geparste DOM-Bäume/Referenzen nach Redis und den extrahierten JOLux-Graphen (RDF-Triples) nach Oxigraph - bi-temporal & append-only (jede Version bleibt erhalten, valid_as_of/transaction_time pro Knoten). Embedding + Vektor-Indexierung delegiert an semantic-fedlex (index-API). Publiziert nach jedem Write ein Cache-Invalidierungs-Event an den Broker.'
+      description 'Schreibt geparste DOM-Bäume/Referenzen nach Redis und den extrahierten JOLux-Graphen (RDF-Triples) nach Oxigraph - bi-temporal & append-only (jede Version bleibt erhalten, valid_as_of/transaction_time pro Knoten). Embedding + Vektor-Indexierung delegiert an semantic-fedlex (index-API) - entkoppelt über die Embedding-Outbox. Publiziert nach jedem Write ein Cache-Invalidierungs-Event an den Broker.'
       technology 'Rust / tokio'
+    }
+
+    embeddingOutbox = store 'Embedding-Outbox' {
+      #writer, #state
+      description 'Transaktionale Outbox für index()-Aufrufe an semantic-fedlex. Entkoppelt den synchronen Korpus-Write vom GPU-Dienst: fällt semantic-fedlex während der Ingestion aus, bleibt der Embedding-Auftrag persistent in der Outbox und wird mit Backoff erneut zugestellt. Ein Vollständigkeits-Marker pro ELI/Version macht Index-Drift (Korpus ohne Vektoren) sichtbar statt still. Siehe ADR-003.'
+      technology 'Rust / Outbox-Pattern'
     }
 
     // ----- Ingestion-interne Pipeline -----
     eventConsumer -[internal]-> ingestParser 'triggert Parsing pro Release'
     ingestParser -[internal]-> indexWriter 'übergibt geparste DOM-Bäume & extrahierte Knoten'
+    indexWriter -[internal]-> embeddingOutbox 'reiht Embedding-Aufträge ein (transaktional)'
   }
 
   // ========================================================
@@ -253,9 +260,9 @@ model {
       sseHandler = component 'SSE Session Handler' {
         description 'Hält langlebige SSE-Streams pro Agent und (de)serialisiert JSON-RPC MCP-Nachrichten.'
       }
-      rateLimiter = component 'Rate Limiter & Quotas' {
-        #security
-        description 'Agent-Defense: drosselt Tool-Aufrufe pro SSE-Session/Tenant (Token-Bucket), bevor sie zur Registry durchgereicht werden - schützt externe APIs vor Endlosschleifen und begrenzt Kosten.'
+      rateLimiter = component 'Rate Limiter & Quotas (verteilt)' {
+        #security, #state
+        description 'Agent-Defense: drosselt Tool-Aufrufe pro SSE-Session/Tenant, bevor sie zur Registry durchgereicht werden - schützt externe APIs vor Endlosschleifen und begrenzt Kosten. Der Token-Bucket-State liegt NICHT pod-lokal, sondern atomar in Redis (Lua-Script), sonst skaliert das Limit mit der Pod-Zahl hoch und ein Agent umgeht das Quota per Load-Balancing. Siehe ADR-002.'
       }
       authRbac = component 'Auth & RBAC-Resolver' {
         #security
@@ -304,6 +311,10 @@ model {
       gracefulFailure = component 'Graceful-Failure-Middleware' {
         #agentic
         description 'Globale Middleware: fängt ALLE Fehler (Netzwerk-Timeouts, GPU-Fehler, XML-Errors, Panics) ab und wandelt sie in lenkende JSON-Strings { error, hint } für das LLM um - niemals ein roher Crash ans LLM.'
+      }
+      provenanceEnvelope = component 'Provenance-Envelope (Antwort-Gate)' {
+        #agentic
+        description 'Erzwingt strukturell, dass JEDE Tool-Antwort ihre Herkunft trägt: Provenance { eli, valid_as_of, transaction_time }. Während der Temporal Resolver die Anfrage stempelt, garantiert dieses Gate die Rückführbarkeit der Antwort - die Grundlage für den Audit-Trail von syllogismus-fedlex (jede Aussage rückführbar auf Norm-ELI). Pflichtfeld, kein optionales Metadatum. Siehe ADR-004.'
       }
     }
 
@@ -393,6 +404,7 @@ model {
   // -- Reader-Pfad (Agent -> MCP) --
   llmAgent -[sse]-> transport 'verbindet, authentifiziert & ruft Tools'
   authRbac -[http]-> idpVault 'Validierung von API-Keys und Bezug von RBAC-Rollen'
+  rateLimiter -[data]-> sharedCache 'verteilter Token-Bucket (atomar via Lua, pod-übergreifend)'
 
   // -- Reader: Two-Tier Caching (L1 lokal -> L2 Redis) & verteilter State --
   l1Cache -[data]-> sharedCache 'L2-Fallback: lädt rohe AKN-Bytes bei L1-Miss'
@@ -410,9 +422,10 @@ model {
   // -- Event-Driven Writer-Pfad (Push statt Poll) --
   etl -[event]-> messageBroker 'publiziert New-Release-Events'
   eventConsumer -[event]-> messageBroker 'konsumiert New-Release-Events (subscribe)'
+  eventConsumer -[event]-> messageBroker 'verschiebt Poison-Releases in die Dead-Letter-Queue (kein Endlos-Retry)'
   ingestParser -[feed]-> etl 'lädt neues XML-Release'
   indexWriter -[data]-> sharedCache 'schreibt DOM-Bäume & Referenzen (append-only)'
-  indexWriter -[http]-> semanticService 'index(text, eli, valid_as_of) - Embedding+Vektor ausgelagert'
+  embeddingOutbox -[http]-> semanticService 'index(text, eli, valid_as_of) - mit Retry/Backoff, Embedding+Vektor ausgelagert'
   indexWriter -[data]-> sharedGraphStore 'materialisiert extrahierten JOLux-Graph (RDF-Triples)'
   indexWriter -[event]-> messageBroker 'publiziert Cache-Invalidierungs-Events'
 
@@ -420,7 +433,7 @@ model {
   observabilityLayer -[trace]-> observabilityStack 'exportiert Traces & Metriken (OTLP)'
   eventConsumer -[trace]-> observabilityStack 'Ingestion-Spans & Lag-Metriken'
   indexWriter -[trace]-> observabilityStack 'Write-Throughput & Latenzen'
-  legalEngineer -> observabilityStack 'überwacht Agenten-Loops, Quotas & Ingestion-Lag'
+  legalEngineer -> observabilityStack 'überwacht Agenten-Loops, Quotas, Ingestion-Lag, DLQ & Embedding-Backlog'
 }
 ```
 

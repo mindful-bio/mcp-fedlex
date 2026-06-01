@@ -9,6 +9,11 @@ dist/
 build/
 *.egg-info/
 
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.orig
+
 # Environment / secrets
 .env
 .env.*

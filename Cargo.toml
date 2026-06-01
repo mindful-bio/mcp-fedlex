@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/fedlex-core",
+    "crates/fedlex-store",
+    "crates/fedlex-telemetry",
+    "crates/mcp-reader",
+    "crates/mcp-ingest",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["mindful.bio"]
+repository = "https://github.com/mindful-bio/mcp-fedlex"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -1,6 +1,6 @@
 // ============================================================
 // mcp-fedlex - Föderierter "Agentic Legal Navigator" (MCP-Server)
-// views.c4 (v6.0) - Vision-, CQRS-, Plan- und Komponenten-Sichten
+// views.c4 (v6.1) - Vision-, CQRS-, Plan- und Komponenten-Sichten
 // ============================================================
 views {
 
@@ -92,7 +92,7 @@ views {
   // ========================================================
   view ingestion_plan of ingestionSystem {
     title '4 - Plan: Ingestion-Writer Architektur (Container)'
-    description 'Event-getriebener Schreibpfad: Event Consumer subscribed den Broker, der Parser lädt & verarbeitet das XML-Release aus der ETL, der Indexer schreibt idempotent nach Redis (DOM/Referenzen) und Oxigraph (JOLux-Graph) und delegiert Embedding+Vektor-Indexierung an semantic-fedlex (index-API).'
+    description 'Event-getriebener Schreibpfad: Event Consumer subscribed den Broker (Poison-Releases wandern in die DLQ statt Endlos-Retry), der Parser lädt & verarbeitet das XML-Release aus der ETL, der Indexer schreibt idempotent nach Redis (DOM/Referenzen) und Oxigraph (JOLux-Graph) und reiht Embedding-Aufträge in die transaktionale Outbox ein, die mit Retry/Backoff an semantic-fedlex zustellt (kein stiller Index-Drift).'
 
     include
       *,
@@ -111,7 +111,7 @@ views {
   // 5a - Transport: Agent-Defense (Rate Limiting) + Auth
   view component_transport of mcp.transport {
     title '5a - Edge: Rate Limiting, Auth & Identity'
-    description 'Agent-Defense an der Eingangstür: der Rate Limiter drosselt Tool-Aufrufe pro Session/Tenant (Token-Bucket), bevor sie weitergereicht werden; der Auth-Resolver validiert API-Keys gegen den IdP/Vault und bezieht die RBAC-Rolle.'
+    description 'Agent-Defense an der Eingangstür: der Rate Limiter drosselt Tool-Aufrufe pro Session/Tenant über einen verteilten Token-Bucket in Redis (atomar, pod-übergreifend, ADR-002), bevor sie weitergereicht werden; der Auth-Resolver validiert API-Keys gegen den IdP/Vault und bezieht die RBAC-Rolle.'
     include
       *,
       llmAgent,

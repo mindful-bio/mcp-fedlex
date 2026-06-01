@@ -1,0 +1,36 @@
+[package]
+name = "mcp-ingest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "mcp_ingest"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mcp-ingest"
+path = "src/main.rs"
+
+[features]
+# Verdrahtet den Schreibpfad an den eingebetteten Oxigraph-Korpus der Leseseite.
+oxigraph-store = ["fedlex-store/oxigraph-store"]
+
+[dependencies]
+fedlex-core = { path = "../fedlex-core" }
+fedlex-store = { path = "../fedlex-store" }
+fedlex-telemetry = { path = "../fedlex-telemetry" }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["macros", "parsing", "formatting"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+

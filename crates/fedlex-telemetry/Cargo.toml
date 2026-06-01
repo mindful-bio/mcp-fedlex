@@ -1,0 +1,18 @@
+[package]
+name = "fedlex-telemetry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fedlex-core = { path = "../fedlex-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+proptest = "1"
+

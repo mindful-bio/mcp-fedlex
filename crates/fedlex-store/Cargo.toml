@@ -1,0 +1,27 @@
+[package]
+name = "fedlex-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+redis-store = ["dep:redis"]
+oxigraph-store = ["dep:oxigraph", "dep:time"]
+
+[dependencies]
+fedlex-core = { path = "../fedlex-core" }
+thiserror = "2"
+redis = { version = "0.27", optional = true, features = ["tokio-comp"] }
+oxigraph = { version = "0.4", optional = true }
+time = { version = "0.3", optional = true, features = ["macros", "formatting", "parsing"] }
+
+[dev-dependencies]
+proptest = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["redis"] }
