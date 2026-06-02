@@ -20,13 +20,17 @@
 
 pub mod client;
 pub mod error;
+pub mod impacts;
 pub mod metadata;
+pub mod search;
 pub mod temporal;
 pub mod vocabulary;
 
 pub use client::{val, Language, MockSparqlClient, SparqlClient, SparqlResults, PREFIXES};
 pub use error::JoluxError;
+pub use impacts::{get_impacts, Impact};
 pub use metadata::{get_law_metadata, LawMetadata};
+pub use search::{search_law, LawHit};
 pub use temporal::{resolve_consolidation_at, Consolidation};
 pub use vocabulary::resolve_vocabulary_label;
 
