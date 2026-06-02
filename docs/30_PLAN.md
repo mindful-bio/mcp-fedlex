@@ -131,9 +131,10 @@ Lückenloses Tracing mit Compliance-Gate.
 
 ## M10 — Betriebshärtung (Day-2)
 
-- [ ] Service-to-Service-mTLS + Default-Deny-NetworkPolicy (ADR-005). Infra (Nix/K8s), nicht per cargo-test beweisbar.
+- [ ] Service-to-Service-mTLS + Default-Deny-NetworkPolicy (ADR-005). Infra (Nix/K8s), nicht per cargo-test beweisbar. Die Default-Deny-NetworkPolicy ist als Manifest gesetzt (siehe `k3-infra`), mTLS bleibt offen.
 - [x] Liveness/Readiness/Startup-Health-Endpunkte im Reader (Backlog B-2). Getrennte Signale, Liveness ohne Abhaengigkeit, Readiness ueber benannte Bereitschaftspruefungen, Startup gegen zu fruehen Neustart. 5 Tests gruen per tower oneshot.
-- [ ] K8s-Manifeste, Verdrahtung der Probes an `/livez`, `/readyz`, `/startupz` (Backlog B-2). Infra, nicht per cargo-test beweisbar.
+- [x] Server-Komposition und Binaer. `app()` verschmilzt Transport und Health zu einer App, `serve()` und `main()` haengen sie an einen echten Socket. 3 Tests gruen (oneshot auf die App, Startup-Flip, echte TCP-Bind-Anfrage gegen `/livez`). Damit zeigen die K8s-Proben auf reale Pfade.
+- [x] K8s-Manifeste, Verdrahtung der Probes an `/livez`, `/readyz`, `/startupz` (Backlog B-2). In `k3-infra/manifests/workloads/mcp-fedlex` (Reader-Deployment mit drei Proben, Redis-Quota-Backend, Service, Argo-Application). Statisch gerendert und client-validiert per `kubectl`, kein cargo-test-Beweis.
 - [ ] Oxigraph-Backup/Restore (Backlog B-1). Infra, nicht per cargo-test beweisbar.
 - [x] Cache-Warmup gegen Stampede (Backlog B-1). Single-Flight ueber moka `try_get_with`, fehlbarer Lader ohne Cache-Vergiftung, proaktives Batch-Vorwaermen mit Bericht. 5 Tests gruen.
 - [ ] AKN/Jolux-Schema-Versions-Handling (Backlog B-2).
@@ -157,7 +158,7 @@ Lückenloses Tracing mit Compliance-Gate.
 | M9 Observability & PII | erledigt | 7 Tests grün inkl. 2 Property-Tests, kein Roh-Argument/keine Roh-Response unmaskiert im Span |
 | Lücke A Transport | erledigt | 44 lib-Tests grün, 9 neue Transport-Tests. JSON-RPC über Auth/Quota/Temporal/Registry, HTTP-Ebene per tower oneshot (initialize, tools/list RBAC-gefiltert, tools/call mit Provenance im Wire-Format, Quota-Drosselung als lenkende Antwort, Auth-Ablehnung) |
 | Lücke B Oxigraph | erledigt | 6 Tests grün (Feature oxigraph-store), eingebetteter In-Process-Oxigraph. Bi-temporale Punkt-in-Zeit-Aufloesung, Korrektur per Transaktionszeit ohne Historienverlust, Append-only-Zaehler, SPARQL-Injection-Schutz |
-| M10 Härtung | teilweise | Health-Endpunkte (5 Tests) und Cache-Warmup gegen Stampede (5 Tests) erledigt. Warmup mit Single-Flight ueber moka, fehlbarer Lader ohne Cache-Vergiftung, proaktives Batch-Vorwaermen. mTLS/NetworkPolicy, K8s-Manifeste, Backup/Restore, Schema-Versionierung bleiben Infra ohne cargo-test-Beweis |
+| M10 Härtung | teilweise | Health-Endpunkte (5 Tests), Server-Komposition mit echtem Socket (3 Tests) und Cache-Warmup gegen Stampede (5 Tests) erledigt. K8s-Manifeste in `k3-infra` (Reader-Deployment mit drei Proben, Redis, Default-Deny-NetworkPolicy, Argo-Application), client-validiert. mTLS, durabler Korpus mit Backup/Restore und Schema-Versionierung bleiben Infra ohne cargo-test-Beweis |
 | Schreib- trifft Lesepfad | erledigt | CorpusSink fehlbar gemacht (Store-Fehler ueber Retry/DLQ statt stiller Verlust). OxigraphCorpusSink-Adapter (Feature oxigraph-store) schreibt in denselben bi-temporalen Korpus, aus dem der Reader punkt-in-zeit aufloest. 1 neuer Writer-Fehlerpfad-Test, 4 Adapter-Tests gruen |
 
 Status je Zeile wird auf `erledigt` gesetzt, sobald der zugehörige Test-Nachweis grün ist.

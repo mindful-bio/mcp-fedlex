@@ -12,10 +12,13 @@
 //! SSE/JSON-RPC-Transport ([`transport`]) verdrahtet alles zur Eingangstür. Ab
 //! M10 die Betriebs-Health-Endpunkte ([`health`]) mit getrennter Liveness,
 //! Readiness und Startup sowie der Cache-Warmup ([`warmup`]) mit Single-Flight
-//! gegen Stampede.
+//! gegen Stampede. Die Server-Komposition ([`app`]) verschmilzt Transport und
+//! Health zu einer App hinter einem echten Socket, sodass der Dienst deploybar
+//! ist.
 
 #![forbid(unsafe_code)]
 
+pub mod app;
 pub mod auth;
 pub mod circuit_breaker;
 pub mod health;
@@ -30,6 +33,7 @@ pub mod transport;
 pub mod warmup;
 pub mod xml_engine;
 
+pub use app::{app, serve};
 pub use auth::{AuthError, AuthResolver, ClaimRecord, Role, StaticAuthResolver, VerifiedClaims};
 pub use circuit_breaker::{BreakerConfig, BreakerError, BreakerState, CircuitBreaker};
 pub use health::{health_router, HealthState, ReadinessProbe};

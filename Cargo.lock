@@ -556,6 +556,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fedlex-jolux"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fedlex-core",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tokio",
+]
+
+[[package]]
 name = "fedlex-store"
 version = "0.1.0"
 dependencies = [
