@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/fedlex-core",
     "crates/fedlex-store",
+    "crates/fedlex-jolux",
     "crates/fedlex-telemetry",
     "crates/mcp-reader",
     "crates/mcp-ingest",
