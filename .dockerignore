@@ -1,0 +1,9 @@
+# Build-Kontext schlank halten. Das Binaer entsteht im Image, nicht lokal.
+target/
+.git/
+.github/
+docs/
+likec4/
+**/*.md
+.gitignore
+Dockerfile
