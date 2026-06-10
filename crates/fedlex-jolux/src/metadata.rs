@@ -28,7 +28,7 @@ const META_Q: &str = r#"SELECT ?sr ?title ?dateDocument ?dateEntryInForce ?typeD
   OPTIONAL { <__URI__> jolux:dateEntryInForce ?dateEntryInForce }
   OPTIONAL { <__URI__> jolux:typeDocument ?typeDocument }
   OPTIONAL {
-    ?cons jolux:isMemberOf <__URI__> ; jolux:isRealizedBy ?expr .
+    <__URI__> jolux:isRealizedBy ?expr .
     ?expr jolux:language <http://publications.europa.eu/resource/authority/language/DEU> ;
           jolux:title ?title .
   }
@@ -39,6 +39,10 @@ const META_Q: &str = r#"SELECT ?sr ?title ?dateDocument ?dateEntryInForce ?typeD
 /// Liefert eine [`Response`] mit Provenance (ELI + `as_of`). Felder sind
 /// `Option`, weil auf CA-Ebene mehrere Prädikate systematisch leer sein können
 /// (Rulebook J1.2/J3.4) — `OPTIONAL` ist daher Pflicht.
+///
+/// **Live-verifiziert (2026-06-10):** Titel über die CA-direkte Expression
+/// (`<CA> isRealizedBy`), nicht über Consolidation-Expressions (die tragen nur
+/// technische Labels).
 pub async fn get_law_metadata(
     client: &impl SparqlClient,
     eli: &Eli,

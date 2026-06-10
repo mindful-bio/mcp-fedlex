@@ -17,15 +17,19 @@ pub struct LawHit {
 
 const SEARCH_Q: &str = r#"SELECT DISTINCT ?ca ?sr ?title WHERE {
   ?ca a jolux:ConsolidationAbstract ;
-      jolux:historicalLegalId ?sr .
-  ?cons jolux:isMemberOf ?ca ;
-        jolux:isRealizedBy ?expr .
+      jolux:historicalLegalId ?sr ;
+      jolux:isRealizedBy ?expr .
   ?expr jolux:language <__LANGURI__> ;
         jolux:title ?title .
   FILTER(CONTAINS(LCASE(STR(?title)), LCASE("__QUERY__")))
 } LIMIT __LIMIT__"#;
 
 /// Sucht Erlasse, deren Titel den Suchbegriff enthält (case-insensitive).
+///
+/// **Live-verifiziert (2026-06-10):** Der amtliche Titel liegt auf der
+/// Expression **direkt am CA** (`<CA> jolux:isRealizedBy ?expr`). Die
+/// Expressions der Consolidations tragen nur technische Labels
+/// (`"Consolidation: 730.0 - 2018-01-01"`) und sind für die Suche unbrauchbar.
 ///
 /// **Discovery-Funktion ohne Provenance** — liefert Kandidaten, auf denen dann
 /// provenance-tragende Primitive (`get_law_metadata`, `get_article_text`)

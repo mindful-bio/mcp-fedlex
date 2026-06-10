@@ -11,12 +11,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod eid;
 pub mod eli;
 pub mod provenance;
 pub mod response;
 pub mod sensitive;
 pub mod temporal;
 
+pub use eid::normalize_eid;
 pub use eli::{Ecli, Eli, IdError};
 pub use provenance::Provenance;
 pub use response::Response;

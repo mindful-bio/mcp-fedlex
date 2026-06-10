@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
+time = { version = "0.3", features = ["serde-human-readable", "macros", "formatting", "parsing"] }
 thiserror = "2"
 
 [dev-dependencies]

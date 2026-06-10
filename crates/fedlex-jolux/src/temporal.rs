@@ -69,6 +69,117 @@ pub async fn resolve_consolidation_at(
     Ok(Response::new(cons, prov))
 }
 
+/// Eine Fassung in der Versionsliste eines Erlasses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Version {
+    /// URI des Consolidation-Knotens.
+    pub consolidation_uri: String,
+    /// Stand-Datum der Fassung.
+    pub date_applicability: String,
+}
+
+const VERSIONS_Q: &str = r#"SELECT DISTINCT ?cons ?date WHERE {
+  ?cons jolux:isMemberOf <__URI__> ;
+        jolux:dateApplicability ?date .
+} ORDER BY ?date LIMIT 200"#;
+
+/// JLX-TMP-01: Listet alle Fassungen (Consolidations) eines Erlasses, chronologisch.
+///
+/// Versionsanzahl ist stark typabhängig (Bundesgesetz Ø 12.3, max 118, J14.1b).
+/// 6'532 CAs haben gar keine Consolidations (J3.3) — dann leere Liste, kein Fehler.
+pub async fn list_versions(
+    client: &impl SparqlClient,
+    eli: &Eli,
+    as_of: ValidAsOf,
+) -> Result<Response<Vec<Version>>, JoluxError> {
+    let sparql = format!("{PREFIXES}{}", VERSIONS_Q.replace("__URI__", &eli_uri(eli)));
+    let res = client.query(&sparql).await?;
+    let versions = res
+        .bindings()
+        .iter()
+        .filter_map(|b| {
+            Some(Version {
+                consolidation_uri: val(b, "cons")?.to_string(),
+                date_applicability: val(b, "date")?.to_string(),
+            })
+        })
+        .collect();
+    let prov = Provenance::new(eli.clone(), as_of, TransactionTime::now());
+    Ok(Response::new(versions, prov))
+}
+
+/// Ergebnis der Geltungsprüfung eines Erlasses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InForce {
+    /// Geltung zum Stichtag (Doppel-Logik, siehe [`check_in_force`]).
+    pub in_force: bool,
+    /// `jolux:inForceStatus` (opake Vokabular-URI), sofern vorhanden.
+    pub status_uri: Option<String>,
+    /// Inkrafttreten.
+    pub date_entry_in_force: Option<String>,
+    /// Ausserkrafttreten (deckt 96 % der Abgelaufenen, J3.2).
+    pub date_no_longer_in_force: Option<String>,
+    /// Ende der Anwendbarkeit (Sonderfälle, 4 %).
+    pub date_end_applicability: Option<String>,
+}
+
+const IN_FORCE_Q: &str = r#"SELECT ?status ?entry ?noLonger ?endApp WHERE {
+  OPTIONAL { <__URI__> jolux:inForceStatus ?status }
+  OPTIONAL { <__URI__> jolux:dateEntryInForce ?entry }
+  OPTIONAL { <__URI__> jolux:dateNoLongerInForce ?noLonger }
+  OPTIONAL { <__URI__> jolux:dateEndApplicability ?endApp }
+} LIMIT 1"#;
+
+/// JLX-TMP-03: Prüft, ob ein Erlass zum Stichtag gilt.
+///
+/// Das Status-Feld allein genügt **nicht** — 15.1 % der CAs haben keinen
+/// `inForceStatus`, 10'479 davon aber ein `dateEntryInForce` (J3.3). Deshalb
+/// Doppel-Logik nach J3.2: primär über die Datumsfelder
+/// (`entry <= as_of < min(noLonger, endApplicability)`), Fallback auf das
+/// Status-Vokabular (`.../0` = in Kraft), wenn Daten fehlen.
+pub async fn check_in_force(
+    client: &impl SparqlClient,
+    eli: &Eli,
+    as_of: ValidAsOf,
+) -> Result<Response<InForce>, JoluxError> {
+    let uri = eli_uri(eli);
+    let sparql = format!("{PREFIXES}{}", IN_FORCE_Q.replace("__URI__", &uri));
+    let res = client.query(&sparql).await?;
+    let b = res
+        .bindings()
+        .first()
+        .ok_or_else(|| JoluxError::NotFound(uri.clone()))?;
+
+    let status_uri = val(b, "status").map(str::to_string);
+    let entry = val(b, "entry").map(str::to_string);
+    let no_longer = val(b, "noLonger").map(str::to_string);
+    let end_app = val(b, "endApp").map(str::to_string);
+
+    // ISO-Datums-Strings vergleichen lexikografisch korrekt.
+    let day = as_of.to_string();
+    let started = entry.as_deref().is_some_and(|d| d <= day.as_str());
+    let ended = [no_longer.as_deref(), end_app.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|d| d <= day.as_str());
+    let in_force = if entry.is_some() {
+        started && !ended
+    } else {
+        // Fallback J3.3: kein Datum -> Status-Vokabular (0 = in Kraft).
+        status_uri.as_deref().is_some_and(|s| s.ends_with("/0"))
+    };
+
+    let data = InForce {
+        in_force,
+        status_uri,
+        date_entry_in_force: entry,
+        date_no_longer_in_force: no_longer,
+        date_end_applicability: end_app,
+    };
+    let prov = Provenance::new(eli.clone(), as_of, TransactionTime::now());
+    Ok(Response::new(data, prov))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +234,63 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err, JoluxError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn versions_are_listed_chronologically() {
+        let client = MockSparqlClient::from_json(
+            r#"{"head":{"vars":["cons","date"]},"results":{"bindings":[
+              {"cons":{"type":"uri","value":"https://fedlex.data.admin.ch/eli/cc/2017/762/20180101"},
+               "date":{"type":"literal","value":"2018-01-01"}},
+              {"cons":{"type":"uri","value":"https://fedlex.data.admin.ch/eli/cc/2017/762/20230601"},
+               "date":{"type":"literal","value":"2023-06-01"}}
+            ]}}"#,
+        );
+        let eli = Eli::new("eli/cc/2017/762").unwrap();
+        let resp = list_versions(&client, &eli, ValidAsOf::new(date!(2026 - 01 - 01)))
+            .await
+            .unwrap();
+        assert_eq!(resp.data().len(), 2);
+        assert_eq!(resp.data()[0].date_applicability, "2018-01-01");
+
+        let q = client.last_query().unwrap();
+        assert!(q.contains("jolux:isMemberOf"));
+        assert!(q.contains("ORDER BY ?date"));
+    }
+
+    #[tokio::test]
+    async fn in_force_uses_date_double_logic_not_just_status() {
+        // Status sagt "in Kraft" (/0), aber dateNoLongerInForce liegt vor dem
+        // Stichtag -> Datumslogik gewinnt (J3.2).
+        let client = MockSparqlClient::from_json(
+            r#"{"head":{"vars":["status","entry","noLonger","endApp"]},"results":{"bindings":[{
+              "status":{"type":"uri","value":"https://fedlex.data.admin.ch/vocabulary/enforcement-status/0"},
+              "entry":{"type":"literal","value":"2000-01-01"},
+              "noLonger":{"type":"literal","value":"2010-01-01"}
+            }]}}"#,
+        );
+        let eli = Eli::new("eli/cc/1999/27").unwrap();
+        let resp = check_in_force(&client, &eli, ValidAsOf::new(date!(2020 - 01 - 01)))
+            .await
+            .unwrap();
+        assert!(!resp.data().in_force, "Datumslogik muss Status übersteuern");
+        assert_eq!(
+            resp.data().date_no_longer_in_force.as_deref(),
+            Some("2010-01-01")
+        );
+    }
+
+    #[tokio::test]
+    async fn in_force_falls_back_to_status_without_dates() {
+        let client = MockSparqlClient::from_json(
+            r#"{"head":{"vars":["status","entry","noLonger","endApp"]},"results":{"bindings":[{
+              "status":{"type":"uri","value":"https://fedlex.data.admin.ch/vocabulary/enforcement-status/0"}
+            }]}}"#,
+        );
+        let eli = Eli::new("eli/cc/2017/762").unwrap();
+        let resp = check_in_force(&client, &eli, ValidAsOf::new(date!(2026 - 01 - 01)))
+            .await
+            .unwrap();
+        assert!(resp.data().in_force, "Fallback auf Status-Vokabular (J3.3)");
     }
 }
