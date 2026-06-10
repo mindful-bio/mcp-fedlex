@@ -1,8 +1,8 @@
 //! Primitive: Sonderinhalte (Lexikon AKN-SPC-01/02, Rulebook X13/X18).
 
 use crate::dom::AknDocument;
-use crate::structure::resolve_eid;
 use crate::error::AknError;
+use crate::structure::resolve_eid;
 use serde::{Deserialize, Serialize};
 
 /// Eine extrahierte Tabelle.
@@ -28,10 +28,7 @@ pub struct TableInfo {
 /// Tabellen nie mitten in der Zeile splitten — sie sind semantische
 /// Einheiten (Zuständigkeits-Matrizen, Grenzwert-Listen, X13.2).
 /// `within` schränkt auf einen Teilbaum ein.
-pub fn extract_tables(
-    doc: &AknDocument,
-    within: Option<&str>,
-) -> Result<Vec<TableInfo>, AknError> {
+pub fn extract_tables(doc: &AknDocument, within: Option<&str>) -> Result<Vec<TableInfo>, AknError> {
     let scope = match within {
         Some(eid) => resolve_eid(doc, eid)?.node,
         None => doc.root(),

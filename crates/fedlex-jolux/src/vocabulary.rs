@@ -78,7 +78,9 @@ pub async fn list_vocabulary(
 
     let mut out: Vec<VocabularyConcept> = Vec::new();
     for b in res.bindings() {
-        let Some(uri) = val(b, "concept") else { continue };
+        let Some(uri) = val(b, "concept") else {
+            continue;
+        };
         match out.iter_mut().find(|c| c.uri == uri) {
             Some(existing) => {
                 if existing.label.is_none() {
@@ -130,7 +132,9 @@ pub async fn explore_node(
 
     let out_q = format!(
         "{PREFIXES}{}",
-        EXPLORE_OUT_Q.replace("__URI__", &safe).replace("__LIMIT__", &lim)
+        EXPLORE_OUT_Q
+            .replace("__URI__", &safe)
+            .replace("__LIMIT__", &lim)
     );
     let outgoing = client
         .query(&out_q)
@@ -147,7 +151,9 @@ pub async fn explore_node(
 
     let in_q = format!(
         "{PREFIXES}{}",
-        EXPLORE_IN_Q.replace("__URI__", &safe).replace("__LIMIT__", &lim)
+        EXPLORE_IN_Q
+            .replace("__URI__", &safe)
+            .replace("__LIMIT__", &lim)
     );
     let incoming = client
         .query(&in_q)
@@ -214,10 +220,15 @@ mod tests {
             .unwrap();
         assert_eq!(concepts.len(), 2);
         assert_eq!(concepts[0].label.as_deref(), Some("Bundesgesetz"));
-        assert!(concepts[1].label.is_none(), "fehlendes DE-Label bleibt None (J5.4)");
+        assert!(
+            concepts[1].label.is_none(),
+            "fehlendes DE-Label bleibt None (J5.4)"
+        );
 
         let q = client.last_query().unwrap();
-        assert!(q.contains(r#"STRSTARTS(STR(?concept), "https://fedlex.data.admin.ch/vocabulary/resource-type/")"#));
+        assert!(q.contains(
+            r#"STRSTARTS(STR(?concept), "https://fedlex.data.admin.ch/vocabulary/resource-type/")"#
+        ));
         assert!(q.contains("LIMIT 60"));
     }
 
@@ -238,7 +249,13 @@ mod tests {
         assert!(hood.outgoing[0].predicate.contains("basicAct"));
 
         let q = client.last_query().unwrap();
-        assert!(q.contains("?p <https://fedlex.data.admin.ch/eli/cc/2017/762>"), "zweite Query = eingehend");
-        assert!(q.contains("SELECT DISTINCT"), "Quad-Store-Duplikate (J16.2) brauchen DISTINCT");
+        assert!(
+            q.contains("?p <https://fedlex.data.admin.ch/eli/cc/2017/762>"),
+            "zweite Query = eingehend"
+        );
+        assert!(
+            q.contains("SELECT DISTINCT"),
+            "Quad-Store-Duplikate (J16.2) brauchen DISTINCT"
+        );
     }
 }

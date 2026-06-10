@@ -123,9 +123,14 @@ mod tests {
             ]}}"#,
         );
         let eli = Eli::new("eli/cc/2017/762").unwrap();
-        let resp = get_taxonomy(&client, &eli, ValidAsOf::new(date!(2026 - 01 - 01)), Language::De)
-            .await
-            .unwrap();
+        let resp = get_taxonomy(
+            &client,
+            &eli,
+            ValidAsOf::new(date!(2026 - 01 - 01)),
+            Language::De,
+        )
+        .await
+        .unwrap();
         assert_eq!(resp.data().len(), 1);
         assert_eq!(resp.data()[0].label.as_deref(), Some("Energie"));
         assert!(resp.data()[0].broader.as_deref().unwrap().ends_with("/7"));

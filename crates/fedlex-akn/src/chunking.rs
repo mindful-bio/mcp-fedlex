@@ -1,8 +1,8 @@
 //! Primitive: Hollowing & RAG-Chunking (Lexikon AKN-CHK-01/02, Rulebook X14/X20).
 
-use crate::dom::{AknDocument, NodeId};
-use crate::doc::{classify_pattern, get_frbr_metadata, DocPattern};
 use crate::components::{get_component_document, list_components};
+use crate::doc::{classify_pattern, get_frbr_metadata, DocPattern};
+use crate::dom::{AknDocument, NodeId};
 use crate::error::AknError;
 use crate::structure::section_path_of;
 use crate::text::has_eid_descendant;
@@ -170,8 +170,7 @@ pub fn chunk_document(doc: &AknDocument) -> Result<Vec<Chunk>, AknError> {
             let mut group = String::new();
             for p in doc.find_all(body, "p") {
                 let t = doc.text_of(p);
-                if !group.is_empty()
-                    && group.chars().count() + t.chars().count() > SPLIT_THRESHOLD
+                if !group.is_empty() && group.chars().count() + t.chars().count() > SPLIT_THRESHOLD
                 {
                     push_chunk(&mut chunks, doc, &base, None, std::mem::take(&mut group));
                 }

@@ -124,7 +124,9 @@ mod tests {
         assert_eq!(resp.data()[0].description.as_deref(), Some("Art. 31"));
 
         let q = client.last_query().unwrap();
-        assert!(q.contains(r#"STRSTARTS(STR(?from), "https://fedlex.data.admin.ch/eli/cc/2017/762")"#));
+        assert!(
+            q.contains(r#"STRSTARTS(STR(?from), "https://fedlex.data.admin.ch/eli/cc/2017/762")"#)
+        );
         assert!(!q.contains("UNION"));
     }
 

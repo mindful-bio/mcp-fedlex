@@ -232,7 +232,10 @@ mod tests {
         assert_eq!(cons[0].start_date.as_deref(), Some("2021-05-01"));
 
         let q = client.last_query().unwrap();
-        assert!(q.contains("jolux:hasSubTask"), "Task-Zwischenknoten (J10.2) fehlt");
+        assert!(
+            q.contains("jolux:hasSubTask"),
+            "Task-Zwischenknoten (J10.2) fehlt"
+        );
         assert!(q.contains("jolux:draftHasTask"));
     }
 

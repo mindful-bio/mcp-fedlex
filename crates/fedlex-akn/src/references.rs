@@ -1,7 +1,7 @@
 //! Primitive: Verweise (Lexikon AKN-REF-01/02, Rulebook X8/X11).
 
-use crate::dom::AknDocument;
 use crate::doc::provenance;
+use crate::dom::AknDocument;
 use crate::error::AknError;
 use fedlex_core::{Response, ValidAsOf};
 use serde::{Deserialize, Serialize};
@@ -140,7 +140,10 @@ mod tests {
                 value: "9a".into()
             }
         );
-        assert_eq!(parse_unlinked_ref("Artikel 7 Absatz 2").kind, RefKind::Article);
+        assert_eq!(
+            parse_unlinked_ref("Artikel 7 Absatz 2").kind,
+            RefKind::Article
+        );
         assert_eq!(
             parse_unlinked_ref("101"),
             ParsedRef {

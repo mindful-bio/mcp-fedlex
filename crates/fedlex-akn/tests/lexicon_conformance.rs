@@ -42,11 +42,7 @@ fn sparql_urls(query: &str) -> Vec<String> {
         .form(&[("query", query)])
         .send()
         .expect("SPARQL-Request fehlgeschlagen");
-    assert!(
-        resp.status().is_success(),
-        "SPARQL HTTP {}",
-        resp.status()
-    );
+    assert!(resp.status().is_success(), "SPARQL HTTP {}", resp.status());
     let json: serde_json::Value = resp.json().expect("SPARQL-JSON unlesbar");
     json["results"]["bindings"]
         .as_array()
@@ -149,7 +145,10 @@ fn akn_doc_03_pattern_eng() {
     let info = classify_pattern(eng());
     assert!(info.has_body);
     assert!(
-        matches!(info.pattern, DocPattern::FlatArticles | DocPattern::Structured),
+        matches!(
+            info.pattern,
+            DocPattern::FlatArticles | DocPattern::Structured
+        ),
         "EnG-Muster: {:?}",
         info.pattern
     );
@@ -255,7 +254,10 @@ fn akn_mod_01_modifications_oc_stromgesetz() {
         .iter()
         .filter(|m| m.quoted_root_kind.as_deref() == Some("paragraph"))
         .count();
-    assert!(para * 2 > with_quoted, "paragraph-Anteil: {para}/{with_quoted}");
+    assert!(
+        para * 2 > with_quoted,
+        "paragraph-Anteil: {para}/{with_quoted}"
+    );
 }
 
 // ───────────────────────── REF ─────────────────────────
@@ -275,7 +277,11 @@ fn akn_ref_01_references_eng() {
                 .is_some_and(|h| h.starts_with("https://fedlex.data.admin.ch/eli/"))
         })
         .count();
-    assert!(fedlex * 2 > refs.len(), "fedlex-hrefs: {fedlex}/{}", refs.len());
+    assert!(
+        fedlex * 2 > refs.len(),
+        "fedlex-hrefs: {fedlex}/{}",
+        refs.len()
+    );
     // Live-Befund (2026-06-10): Im aktuellen EnG tragen ALLE refs ein href —
     // die 15 % href-losen (X11.2) sind eine Corpus-Quote, keine
     // Dokument-Garantie. REF-02 muss trotzdem jedes Label verkraften.
@@ -359,11 +365,7 @@ fn akn_chk_02_chunks_eng() {
     for c in &chunks {
         assert!(!c.text.is_empty());
         // Chunk-IDs auf datumsloser Work-Ebene — stabil über Konsolidierungen.
-        assert!(
-            c.chunk_id.starts_with("eli/cc/2017/762#"),
-            "{}",
-            c.chunk_id
-        );
+        assert!(c.chunk_id.starts_with("eli/cc/2017/762#"), "{}", c.chunk_id);
         let m = &c.metadata;
         assert_eq!(m.collection.as_deref(), Some("cc"));
         assert_eq!(m.eli.as_deref(), Some("eli/cc/2017/762"));

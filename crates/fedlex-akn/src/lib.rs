@@ -30,8 +30,7 @@ pub use chunking::{chunk_document, hollow_document, Chunk, ChunkMetadata, Hollow
 pub use components::{get_component_document, list_components, ComponentInfo};
 pub use doc::{classify_pattern, get_frbr_metadata, DocPattern, FrbrMetadata, PatternInfo};
 pub use dom::{
-    is_hierarchy_tag, normalize_eid, normalize_text, AknDocument, Content, NodeId,
-    HIERARCHY_TAGS,
+    is_hierarchy_tag, normalize_eid, normalize_text, AknDocument, Content, NodeId, HIERARCHY_TAGS,
 };
 pub use error::AknError;
 pub use markdown::get_readable_document;

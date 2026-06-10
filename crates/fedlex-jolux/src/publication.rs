@@ -177,8 +177,16 @@ mod tests {
             .await
             .unwrap();
         assert!(resp.data().oc_uri.ends_with("eli/oc/2017/762"));
-        assert!(resp.data().genre.is_some(), "Genre liegt auf OC-Ebene (J8.3)");
-        assert!(resp.data().memorial.as_deref().unwrap().contains("eli/collection/"));
+        assert!(
+            resp.data().genre.is_some(),
+            "Genre liegt auf OC-Ebene (J8.3)"
+        );
+        assert!(resp
+            .data()
+            .memorial
+            .as_deref()
+            .unwrap()
+            .contains("eli/collection/"));
 
         let q = client.last_query().unwrap();
         assert!(q.contains("jolux:basicAct"));
@@ -186,9 +194,8 @@ mod tests {
 
     #[tokio::test]
     async fn missing_basic_act_is_not_found() {
-        let client = MockSparqlClient::from_json(
-            r#"{"head":{"vars":["oc"]},"results":{"bindings":[]}}"#,
-        );
+        let client =
+            MockSparqlClient::from_json(r#"{"head":{"vars":["oc"]},"results":{"bindings":[]}}"#);
         let eli = Eli::new("eli/cc/1900/1").unwrap();
         let err = get_oc_act(&client, &eli, ValidAsOf::new(date!(2026 - 01 - 01)))
             .await

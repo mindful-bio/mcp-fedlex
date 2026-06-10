@@ -152,7 +152,10 @@ pub async fn get_outgoing_impacts(
     oc_eli: &Eli,
     as_of: ValidAsOf,
 ) -> Result<Response<Vec<OutgoingImpact>>, JoluxError> {
-    let sparql = format!("{PREFIXES}{}", OUTGOING_Q.replace("__URI__", &eli_uri(oc_eli)));
+    let sparql = format!(
+        "{PREFIXES}{}",
+        OUTGOING_Q.replace("__URI__", &eli_uri(oc_eli))
+    );
     let res = client.query(&sparql).await?;
     let impacts = res
         .bindings()
@@ -255,7 +258,10 @@ mod tests {
         assert_eq!(resp.data().len(), 2);
 
         let q = client.last_query().unwrap();
-        assert!(q.contains(r#"CONTAINS(STR(?target), "art_14a")"#), "eId nicht normalisiert: {q}");
+        assert!(
+            q.contains(r#"CONTAINS(STR(?target), "art_14a")"#),
+            "eId nicht normalisiert: {q}"
+        );
         assert!(q.contains("https://fedlex.data.admin.ch/eli/cc/2017/762/"));
     }
 
@@ -276,6 +282,8 @@ mod tests {
         assert!(resp.data()[0].target.contains("eli/cc/1998/3033"));
 
         let q = client.last_query().unwrap();
-        assert!(q.contains(r#"STRSTARTS(STR(?from), "https://fedlex.data.admin.ch/eli/oc/2017/762")"#));
+        assert!(
+            q.contains(r#"STRSTARTS(STR(?from), "https://fedlex.data.admin.ch/eli/oc/2017/762")"#)
+        );
     }
 }

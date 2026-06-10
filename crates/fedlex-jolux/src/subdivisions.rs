@@ -103,7 +103,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.data().len(), 2);
-        assert!(resp.data()[0].subdivision_type.as_deref().unwrap().ends_with("/article"));
+        assert!(resp.data()[0]
+            .subdivision_type
+            .as_deref()
+            .unwrap()
+            .ends_with("/article"));
         assert!(resp.data()[1].subdivision_type.is_none());
 
         let q = client.last_query().unwrap();
@@ -126,9 +130,8 @@ mod tests {
 
     #[tokio::test]
     async fn empty_subdivisions_is_normal_not_error() {
-        let client = MockSparqlClient::from_json(
-            r#"{"head":{"vars":["sub"]},"results":{"bindings":[]}}"#,
-        );
+        let client =
+            MockSparqlClient::from_json(r#"{"head":{"vars":["sub"]},"results":{"bindings":[]}}"#);
         let eli = Eli::new("eli/cc/1999/404").unwrap();
         let resp = get_subdivisions(&client, &eli, ValidAsOf::new(date!(2026 - 01 - 01)), None)
             .await

@@ -1,7 +1,7 @@
 //! Primitive: Text-Extraktion & Suche (Lexikon AKN-TXT-01/02/04, Rulebook X6/X18).
 
-use crate::dom::AknDocument;
 use crate::doc::provenance;
+use crate::dom::AknDocument;
 use crate::error::AknError;
 use crate::structure::{resolve_eid, section_path_of};
 use fedlex_core::{Response, ValidAsOf};

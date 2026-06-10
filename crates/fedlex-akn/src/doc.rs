@@ -50,16 +50,17 @@ pub fn get_frbr_metadata(doc: &AknDocument) -> Result<FrbrMetadata, AknError> {
             .map(str::to_string)
     };
 
-    let work = doc.find_child(ident, "FRBRWork").ok_or(AknError::MissingFrbr)?;
+    let work = doc
+        .find_child(ident, "FRBRWork")
+        .ok_or(AknError::MissingFrbr)?;
     let eli_work = value_of(work, "FRBRuri")
         .or_else(|| value_of(work, "FRBRthis"))
         .ok_or(AknError::MissingFrbr)?;
 
     let expressions = doc.find_all(ident, "FRBRExpression");
     let first_expr = expressions.first().copied();
-    let eli_expression = first_expr.and_then(|e| {
-        value_of(e, "FRBRuri").or_else(|| value_of(e, "FRBRthis"))
-    });
+    let eli_expression =
+        first_expr.and_then(|e| value_of(e, "FRBRuri").or_else(|| value_of(e, "FRBRthis")));
     let language = first_expr
         .and_then(|e| doc.find_child(e, "FRBRlanguage"))
         .and_then(|n| doc.attr(n, "language"))

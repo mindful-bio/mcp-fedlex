@@ -187,7 +187,9 @@ mod tests {
                "status":{"type":"uri","value":"https://fedlex.data.admin.ch/vocabulary/enforcement-status/0"}}
             ]}}"#,
         );
-        let hits = resolve_sr_number(&client, "730.0", Language::De).await.unwrap();
+        let hits = resolve_sr_number(&client, "730.0", Language::De)
+            .await
+            .unwrap();
         assert_eq!(hits.len(), 2, "SR-Wiederverwendung: Liste, kein Einzelwert");
         assert_eq!(hits[1].eli, "eli/cc/2017/762");
         assert!(hits[1].in_force_status.as_deref().unwrap().ends_with("/0"));
@@ -199,9 +201,8 @@ mod tests {
 
     #[tokio::test]
     async fn sr_number_neutralizes_injection() {
-        let client = MockSparqlClient::from_json(
-            r#"{"head":{"vars":["ca"]},"results":{"bindings":[]}}"#,
-        );
+        let client =
+            MockSparqlClient::from_json(r#"{"head":{"vars":["ca"]},"results":{"bindings":[]}}"#);
         let _ = resolve_sr_number(&client, r#"730" } INJECT {"#, Language::De)
             .await
             .unwrap();

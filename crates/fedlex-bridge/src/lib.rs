@@ -86,9 +86,17 @@ mod tests {
         let (f, source) = fetcher();
         let eli = Eli::new("eli/cc/2017/762").unwrap();
         let as_of = ValidAsOf::new(date!(2026 - 06 - 01));
-        f.fetch_akn_document(&eli, as_of, Language::De).await.unwrap();
-        f.fetch_akn_document(&eli, as_of, Language::De).await.unwrap();
-        assert_eq!(source.fetch_count(), 1, "zweiter Abruf muss aus dem Cache kommen");
+        f.fetch_akn_document(&eli, as_of, Language::De)
+            .await
+            .unwrap();
+        f.fetch_akn_document(&eli, as_of, Language::De)
+            .await
+            .unwrap();
+        assert_eq!(
+            source.fetch_count(),
+            1,
+            "zweiter Abruf muss aus dem Cache kommen"
+        );
     }
 
     #[tokio::test]

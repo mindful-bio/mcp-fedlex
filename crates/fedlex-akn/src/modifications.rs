@@ -1,7 +1,7 @@
 //! Primitive: Änderungserlasse & Änderungshistorie (Lexikon AKN-MOD-01/02, Rulebook X7/X12).
 
-use crate::dom::AknDocument;
 use crate::doc::provenance;
+use crate::dom::AknDocument;
 use crate::error::AknError;
 use crate::structure::resolve_eid;
 use crate::text::{collect_notes, RefTarget};

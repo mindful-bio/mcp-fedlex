@@ -44,7 +44,10 @@ async fn full_chain_resolves_and_parses_eng_de() {
     let meta = fedlex_akn::get_frbr_metadata(doc).expect("FRBR");
     assert_eq!(meta.language.as_deref(), Some("de"));
     assert!(
-        meta.title.as_deref().unwrap_or_default().contains("Energie"),
+        meta.title
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Energie"),
         "Titel war {:?}",
         meta.title
     );

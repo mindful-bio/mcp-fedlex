@@ -152,9 +152,8 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_process_is_not_found() {
-        let client = MockSparqlClient::from_json(
-            r#"{"head":{"vars":["title"]},"results":{"bindings":[]}}"#,
-        );
+        let client =
+            MockSparqlClient::from_json(r#"{"head":{"vars":["title"]},"results":{"bindings":[]}}"#);
         let err = get_treaty_info(&client, "https://fedlex.data.admin.ch/eli/treaty/0/0")
             .await
             .unwrap_err();
@@ -180,7 +179,9 @@ mod tests {
         assert_eq!(hits.len(), 1);
 
         let q = client.last_query().unwrap();
-        assert!(q.contains("jolux:treatyPartyCountry <https://fedlex.data.admin.ch/vocabulary/country/136>"));
+        assert!(q.contains(
+            "jolux:treatyPartyCountry <https://fedlex.data.admin.ch/vocabulary/country/136>"
+        ));
         assert!(q.contains("jolux:bilateral true"));
         assert!(q.contains("LIMIT 5"));
     }

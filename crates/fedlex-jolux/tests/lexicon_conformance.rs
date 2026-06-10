@@ -29,10 +29,10 @@ use fedlex_jolux::{
     check_in_force, explore_node, find_related_by_topic, find_treaties, get_article_history,
     get_citations, get_consultation_documents, get_consultations, get_drafts, get_fga_documents,
     get_impacts, get_law_metadata, get_memorial, get_oc_act, get_outgoing_impacts,
-    get_subdivisions, get_taxonomy, get_treaty_info, list_annexes, list_expressions,
-    list_versions, list_vocabulary, resolve_consolidation_at, resolve_manifestation,
-    resolve_sr_number, resolve_vocabulary_label, search_law, CitationDirection, JoluxError,
-    Language, ManifestationFormat, SparqlClient, SparqlResults, PREFIXES,
+    get_subdivisions, get_taxonomy, get_treaty_info, list_annexes, list_expressions, list_versions,
+    list_vocabulary, resolve_consolidation_at, resolve_manifestation, resolve_sr_number,
+    resolve_vocabulary_label, search_law, CitationDirection, JoluxError, Language,
+    ManifestationFormat, SparqlClient, SparqlResults, PREFIXES,
 };
 use time::macros::date;
 
@@ -131,7 +131,11 @@ async fn jlx_res_01_resolve_sr_number() {
     );
     let current = hits.iter().find(|h| h.eli == "eli/cc/2017/762").unwrap();
     assert!(
-        current.in_force_status.as_deref().unwrap_or("").ends_with("/0"),
+        current
+            .in_force_status
+            .as_deref()
+            .unwrap_or("")
+            .ends_with("/0"),
         "Disambiguierung: aktuelles EnG muss enforcement-status/0 tragen"
     );
     assert!(
@@ -199,10 +203,20 @@ async fn jlx_res_03_get_law_metadata() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_res_04_resolve_manifestation() {
     let c = LiveClient::new();
-    let resp = resolve_manifestation(&c, &eng(), stichtag(), Language::De, ManifestationFormat::Xml)
-        .await
-        .expect("resolve_manifestation live");
-    assert!(resp.data().url.contains("xml"), "XML-URL erwartet: {}", resp.data().url);
+    let resp = resolve_manifestation(
+        &c,
+        &eng(),
+        stichtag(),
+        Language::De,
+        ManifestationFormat::Xml,
+    )
+    .await
+    .expect("resolve_manifestation live");
+    assert!(
+        resp.data().url.contains("xml"),
+        "XML-URL erwartet: {}",
+        resp.data().url
+    );
     assert!(!resp.data().consolidation_date.is_empty());
 
     // Falltrap: falsche Richtung liefert nichts.
@@ -222,7 +236,9 @@ async fn jlx_res_04_resolve_manifestation() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_res_05_list_expressions() {
     let c = LiveClient::new();
-    let langs = list_expressions(&c, &eng()).await.expect("list_expressions live");
+    let langs = list_expressions(&c, &eng())
+        .await
+        .expect("list_expressions live");
     assert!(
         langs.len() >= 3,
         "EnG muss in >= 3 Sprachen vorliegen (J13.1), got {langs:?}"
@@ -242,7 +258,9 @@ async fn jlx_res_05_list_expressions() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_tmp_01_list_versions() {
     let c = LiveClient::new();
-    let resp = list_versions(&c, &eng(), stichtag()).await.expect("list_versions live");
+    let resp = list_versions(&c, &eng(), stichtag())
+        .await
+        .expect("list_versions live");
     let versions = resp.data();
     assert!(
         versions.len() >= 13,
@@ -251,7 +269,9 @@ async fn jlx_tmp_01_list_versions() {
     );
     // Chronologie eingelockt.
     assert!(
-        versions.windows(2).all(|w| w[0].date_applicability <= w[1].date_applicability),
+        versions
+            .windows(2)
+            .all(|w| w[0].date_applicability <= w[1].date_applicability),
         "Fassungen müssen chronologisch sortiert sein"
     );
 }
@@ -285,18 +305,28 @@ async fn jlx_tmp_02_resolve_version_at() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_tmp_03_check_in_force() {
     let c = LiveClient::new();
-    let resp = check_in_force(&c, &eng(), stichtag()).await.expect("check_in_force live");
+    let resp = check_in_force(&c, &eng(), stichtag())
+        .await
+        .expect("check_in_force live");
     assert!(resp.data().in_force, "EnG muss am Stichtag in Kraft sein");
     assert!(
-        resp.data().status_uri.as_deref().unwrap_or("").ends_with("/0"),
+        resp.data()
+            .status_uri
+            .as_deref()
+            .unwrap_or("")
+            .ends_with("/0"),
         "enforcement-status/0 erwartet"
     );
     assert!(resp.data().date_entry_in_force.is_some());
 
     // Datumslogik-Gegenprobe: vor Inkrafttreten (2018-01-01) nicht in Kraft.
-    let before = check_in_force(&c, &eng(), fedlex_core::ValidAsOf::new(date!(2017 - 01 - 01)))
-        .await
-        .expect("check_in_force live (before)");
+    let before = check_in_force(
+        &c,
+        &eng(),
+        fedlex_core::ValidAsOf::new(date!(2017 - 01 - 01)),
+    )
+    .await
+    .expect("check_in_force live (before)");
     assert!(
         !before.data().in_force,
         "Doppel-Logik J3.2: vor Inkrafttreten darf das Status-Feld nicht gewinnen"
@@ -346,7 +376,9 @@ async fn jlx_sub_01_get_subdivisions() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_sub_02_list_annexes() {
     let c = LiveClient::new();
-    let resp = list_annexes(&c, &eng(), stichtag()).await.expect("list_annexes live");
+    let resp = list_annexes(&c, &eng(), stichtag())
+        .await
+        .expect("list_annexes live");
     assert!(
         resp.data().is_empty(),
         "Live-Befund 2026-06: EnG hat keine Annex-Subdivisions — falls jetzt doch, Lexikon prüfen"
@@ -378,7 +410,9 @@ async fn jlx_sub_02_list_annexes() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_imp_01_get_impacts() {
     let c = LiveClient::new();
-    let resp = get_impacts(&c, &eng(), stichtag()).await.expect("get_impacts live");
+    let resp = get_impacts(&c, &eng(), stichtag())
+        .await
+        .expect("get_impacts live");
     let impacts = resp.data();
     assert!(!impacts.is_empty(), "EnG muss Impacts haben");
     assert!(
@@ -416,7 +450,9 @@ async fn jlx_imp_03_get_outgoing_impacts() {
         "Der EnG-Erlass (Energiestrategie 2050) muss ausgehende Impacts haben"
     );
     assert!(
-        resp.data().iter().any(|i| !i.target.contains("/eli/oc/2017/762")),
+        resp.data()
+            .iter()
+            .any(|i| !i.target.contains("/eli/oc/2017/762")),
         "Ausgehende Impacts müssen fremde Gesetze treffen"
     );
 }
@@ -443,11 +479,18 @@ async fn jlx_cit_01_get_citations() {
          Falls wieder leer: Lexikon-Eintrag JLX-CIT-01 erneut anpassen"
     );
     // Dedup-Garantie (J7.4) eingelockt.
-    let mut pairs: Vec<(&str, &str)> = citations.iter().map(|x| (x.from.as_str(), x.to.as_str())).collect();
+    let mut pairs: Vec<(&str, &str)> = citations
+        .iter()
+        .map(|x| (x.from.as_str(), x.to.as_str()))
+        .collect();
     pairs.sort_unstable();
     let before = pairs.len();
     pairs.dedup();
-    assert_eq!(before, pairs.len(), "get_citations darf keine (from,to)-Duplikate liefern");
+    assert_eq!(
+        before,
+        pairs.len(),
+        "get_citations darf keine (from,to)-Duplikate liefern"
+    );
 }
 
 // ============================================================
@@ -463,7 +506,10 @@ async fn jlx_tax_01_get_taxonomy() {
         .await
         .expect("get_taxonomy live");
     let entries = resp.data();
-    assert!(!entries.is_empty(), "EnG muss Taxonomie-Einträge haben (J20.3)");
+    assert!(
+        !entries.is_empty(),
+        "EnG muss Taxonomie-Einträge haben (J20.3)"
+    );
     assert!(
         entries.iter().any(|e| e.broader.is_some()),
         "Taxonomie muss hierarchisch sein (skos:broader, J20.3)"
@@ -498,15 +544,23 @@ async fn jlx_tax_02_find_related_by_topic() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_pub_01_get_oc_act() {
     let c = LiveClient::new();
-    let resp = get_oc_act(&c, &eng(), stichtag()).await.expect("get_oc_act live");
+    let resp = get_oc_act(&c, &eng(), stichtag())
+        .await
+        .expect("get_oc_act live");
     let act = resp.data();
-    assert_eq!(act.oc_uri, ENG_OC, "CC-URI <-> OC-URI deterministisch (J19.1)");
+    assert_eq!(
+        act.oc_uri, ENG_OC,
+        "CC-URI <-> OC-URI deterministisch (J19.1)"
+    );
     assert!(
         act.genre.is_some(),
         "Genre muss auf OC-Act-Ebene befüllt sein (J8.3: 99.6%)"
     );
     assert!(
-        act.memorial.as_deref().unwrap_or("").contains("eli/collection/"),
+        act.memorial
+            .as_deref()
+            .unwrap_or("")
+            .contains("eli/collection/"),
         "Memorial-Verweis erwartet, got: {:?}",
         act.memorial
     );
@@ -541,7 +595,9 @@ async fn jlx_pub_03_get_fga_documents() {
         .await
         .expect("get_fga_documents live");
     assert!(
-        resp.data().iter().any(|d| d.uri.contains("eli/fga/2016/1642")),
+        resp.data()
+            .iter()
+            .any(|d| d.uri.contains("eli/fga/2016/1642")),
         "EnG-Botschaft (eli/fga/2016/1642) muss über den Draft findbar sein, got: {:?}",
         resp.data()
     );
@@ -568,7 +624,9 @@ async fn jlx_pub_03_get_fga_documents() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_gen_01_get_drafts() {
     let c = LiveClient::new();
-    let resp = get_drafts(&c, &eng(), stichtag()).await.expect("get_drafts live");
+    let resp = get_drafts(&c, &eng(), stichtag())
+        .await
+        .expect("get_drafts live");
     let drafts = resp.data();
     assert!(!drafts.is_empty(), "EnG muss einen Draft haben");
     let d = drafts
@@ -581,7 +639,9 @@ async fn jlx_gen_01_get_drafts() {
         "Curia-Vista-Schlüssel (J11.2)"
     );
     assert!(
-        d.resulting_resources.iter().any(|r| r.contains("eli/fga/2016/1642")),
+        d.resulting_resources
+            .iter()
+            .any(|r| r.contains("eli/fga/2016/1642")),
         "Draft muss auch die Botschaft als Resultat tragen"
     );
 }
@@ -595,19 +655,30 @@ async fn jlx_gen_02_get_consultations() {
     let cons = get_consultations(&c, "https://fedlex.data.admin.ch/eli/dl/proj/2021/100")
         .await
         .expect("get_consultations live");
-    assert!(!cons.is_empty(), "Referenz-Draft 2021/100 muss eine Vernehmlassung haben");
+    assert!(
+        !cons.is_empty(),
+        "Referenz-Draft 2021/100 muss eine Vernehmlassung haben"
+    );
     assert!(
         cons[0].uri.contains("eli/dl/proj/"),
         "Consultation-URI-Muster eli/dl/proj/.. erwartet (J20.4)"
     );
     assert!(
-        cons.iter().any(|x| x.start_date.is_some() || x.end_date.is_some()),
+        cons.iter()
+            .any(|x| x.start_date.is_some() || x.end_date.is_some()),
         "Task-Traversal (J10.2) muss Termine liefern, got: {cons:?}"
     );
 
     // Falltrap-Wache: ConsultationTasks existieren als Zwischenknoten.
-    let task = q(&c, r#"SELECT ?t WHERE { ?t a jolux:ConsultationTask } LIMIT 1"#).await;
-    assert!(!task.is_empty(), "ConsultationTasks müssen existieren (J10.2)");
+    let task = q(
+        &c,
+        r#"SELECT ?t WHERE { ?t a jolux:ConsultationTask } LIMIT 1"#,
+    )
+    .await;
+    assert!(
+        !task.is_empty(),
+        "ConsultationTasks müssen existieren (J10.2)"
+    );
 }
 
 /// JLX-GEN-03 · get_consultation_documents — Rust-Primitiv live: Dokumente der
@@ -630,7 +701,10 @@ async fn jlx_gen_03_get_consultation_documents() {
             r#"SELECT ?p WHERE { ?p a jolux:PositionStatementPublication } LIMIT 1"#,
         )
         .await;
-        assert!(!pos.is_empty(), "PositionStatementPublications müssen existieren (J10.2: 873)");
+        assert!(
+            !pos.is_empty(),
+            "PositionStatementPublications müssen existieren (J10.2: 873)"
+        );
     }
 
     let result = q(
@@ -638,7 +712,10 @@ async fn jlx_gen_03_get_consultation_documents() {
         r#"SELECT ?r WHERE { ?r a jolux:ResultOfAConsultationPublication } LIMIT 1"#,
     )
     .await;
-    assert!(!result.is_empty(), "Ergebnisberichte müssen existieren (J10.2: 1'789)");
+    assert!(
+        !result.is_empty(),
+        "Ergebnisberichte müssen existieren (J10.2: 1'789)"
+    );
 }
 
 // ============================================================
@@ -662,7 +739,10 @@ async fn jlx_trt_01_get_treaty_info() {
         info.party_countries.iter().all(|p| p.starts_with("http")),
         "treatyPartyCountry muss Vokabular-URI sein"
     );
-    assert!(info.signature_date.is_some(), "Unterzeichnungsdatum erwartet");
+    assert!(
+        info.signature_date.is_some(),
+        "Unterzeichnungsdatum erwartet"
+    );
 }
 
 /// JLX-TRT-02 · find_treaties — Rust-Primitiv live: enumerate über Bilateral-Flag.
@@ -670,8 +750,13 @@ async fn jlx_trt_01_get_treaty_info() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_trt_02_find_treaties() {
     let c = LiveClient::new();
-    let hits = find_treaties(&c, None, Some(true), 5).await.expect("find_treaties live");
-    assert!(!hits.is_empty(), "Bilateral-Flag muss abfragbar sein (J12.2)");
+    let hits = find_treaties(&c, None, Some(true), 5)
+        .await
+        .expect("find_treaties live");
+    assert!(
+        !hits.is_empty(),
+        "Bilateral-Flag muss abfragbar sein (J12.2)"
+    );
     assert!(
         hits.iter().all(|h| h.process_uri.contains("eli/treaty/")),
         "TreatyProcess-URI-Muster erwartet, got: {hits:?}"
@@ -688,13 +773,10 @@ async fn jlx_trt_02_find_treaties() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_voc_01_resolve_vocabulary_term() {
     let c = LiveClient::new();
-    let label = resolve_vocabulary_label(
-        &c,
-        &format!("{VOCAB_BASE}resource-type/21"),
-        Language::De,
-    )
-    .await
-    .expect("resource-type/21 muss DE-Label haben (J5.4)");
+    let label =
+        resolve_vocabulary_label(&c, &format!("{VOCAB_BASE}resource-type/21"), Language::De)
+            .await
+            .expect("resource-type/21 muss DE-Label haben (J5.4)");
     assert!(
         label.to_lowercase().contains("bundesgesetz"),
         "resource-type/21 = Bundesgesetz (J5.5), got: {label}"
@@ -734,7 +816,9 @@ async fn jlx_voc_02_list_vocabulary() {
 #[ignore = "live: Netz + Fedlex-Endpoint nötig"]
 async fn jlx_voc_03_explore_node() {
     let c = LiveClient::new();
-    let hood = explore_node(&c, ENG_CA, 50).await.expect("explore_node live");
+    let hood = explore_node(&c, ENG_CA, 50)
+        .await
+        .expect("explore_node live");
     assert!(
         hood.outgoing.len() >= 5,
         "EnG-Knoten muss >= 5 ausgehende Prädikate haben (J0.3: ~12), got {}",

@@ -2,8 +2,8 @@
 //!
 //! Die Vollstruktur, die JOLux nicht hat (dort max. 8.5 % Abdeckung, J4.1).
 
-use crate::dom::{is_hierarchy_tag, normalize_eid, AknDocument, NodeId};
 use crate::doc::provenance;
+use crate::dom::{is_hierarchy_tag, normalize_eid, AknDocument, NodeId};
 use crate::error::AknError;
 use fedlex_core::{Response, ValidAsOf};
 use serde::{Deserialize, Serialize};
@@ -181,7 +181,10 @@ mod tests {
         let tree = resp.data();
         let chap = tree.iter().find(|n| n.kind == "chapter").unwrap();
         assert_eq!(chap.eid.as_deref(), Some("chap_1"));
-        assert_eq!(chap.children.iter().filter(|c| c.kind == "article").count(), 2);
+        assert_eq!(
+            chap.children.iter().filter(|c| c.kind == "article").count(),
+            2
+        );
         assert_eq!(resp.provenance().eli.as_str(), "eli/cc/2017/762");
     }
 

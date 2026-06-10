@@ -265,8 +265,8 @@ impl AknDocument {
                     self.write_text(*e, out);
                     match tag {
                         "num" | "td" | "th" => out.push(' '),
-                        "p" | "paragraph" | "heading" | "item" | "listIntroduction"
-                        | "intro" | "tr" | "block" | "content" => out.push('\n'),
+                        "p" | "paragraph" | "heading" | "item" | "listIntroduction" | "intro"
+                        | "tr" | "block" | "content" => out.push('\n'),
                         _ => {}
                     }
                 }
