@@ -33,6 +33,9 @@ test:
       - target
   before_script:
     - rustup component add rustfmt clippy
+    # oxrocksdb-sys (oxigraph-Feature) generiert Bindings via bindgen und
+    # braucht dafuer libclang, das im rust-Image fehlt.
+    - apt-get update -qq && apt-get install -y -qq clang libclang-dev
   script:
     - cargo fmt --all --check
     - cargo clippy --workspace --all-targets -- -D warnings
