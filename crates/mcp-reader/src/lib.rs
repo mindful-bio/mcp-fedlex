@@ -23,20 +23,26 @@ pub mod auth;
 pub mod circuit_breaker;
 pub mod health;
 pub mod lod_gateway;
+pub mod probes;
 pub mod quota;
 pub mod registry;
 pub mod sandbox;
 pub mod semantic_client;
 pub mod temporal;
 pub mod tool;
+pub mod tools;
 pub mod transport;
 pub mod warmup;
 pub mod xml_engine;
 
 pub use app::{app, serve};
-pub use auth::{AuthError, AuthResolver, ClaimRecord, Role, StaticAuthResolver, VerifiedClaims};
+pub use auth::{
+    AuthError, AuthResolver, ClaimRecord, JwtAuthResolver, Role, StaticAuthResolver,
+    VerifiedClaims,
+};
 pub use circuit_breaker::{BreakerConfig, BreakerError, BreakerState, CircuitBreaker};
 pub use health::{health_router, HealthState, ReadinessProbe};
+pub use probes::{QuotaBackendProbe, SparqlProbe};
 pub use lod_gateway::{
     ConnectorError, EliResolver, ExternalConnector, Origin, ResolveError, Resolved,
 };
@@ -48,6 +54,7 @@ pub use semantic_client::{
 };
 pub use temporal::{QueryStamp, TemporalResolver};
 pub use tool::{pools_for, role_allows, McpTool, ToolContext, ToolError, ToolPool};
+pub use tools::register_navigation_tools;
 pub use transport::{router, JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpService};
 pub use warmup::{WarmupCache, WarmupReport};
 pub use xml_engine::{diff_to_markdown, paginate, Article, Document, L1Cache, Page};
