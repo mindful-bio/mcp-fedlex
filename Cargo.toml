@@ -4,9 +4,10 @@ members = [
     "crates/fedlex-core",
     "crates/fedlex-store",
     "crates/fedlex-jolux",
+    "crates/fedlex-akn",
+    "crates/fedlex-bridge",
     "crates/fedlex-telemetry",
     "crates/mcp-reader",
-    "crates/mcp-ingest",
 ]
 
 [workspace.package]
