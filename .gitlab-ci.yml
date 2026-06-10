@@ -1,0 +1,62 @@
+# GitLab-CI fuer mcp-fedlex.
+#
+# Hinweis. Die Dateien unter .github/workflows/ laufen nur auf einem
+# GitHub-Mirror. Auf git.mindful-server.com (GitLab) zaehlt diese Datei.
+#
+# `test` spiegelt die GitHub-CI (fmt, clippy, Tests inkl. Feature-Varianten).
+# `build` baut das mcp-reader-Image per Kaniko (unprivilegierter Runner) und
+# pusht in die Registry (registry.mindful-server.com/mindful-bio/mcp-fedlex).
+#
+# Die Docker-gegateten Integrationstests (Redis via Testcontainers) bleiben
+# hier draussen, weil der Kubernetes-Executor keinen Docker-Daemon hat. Sie
+# laufen lokal und im GitHub-Mirror-Workflow.
+
+stages:
+  - test
+  - build
+
+variables:
+  CARGO_TERM_COLOR: always
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  KUBERNETES_CPU_REQUEST: "1"
+  KUBERNETES_CPU_LIMIT: "3"
+  KUBERNETES_MEMORY_REQUEST: 2Gi
+  KUBERNETES_MEMORY_LIMIT: 6Gi
+
+test:
+  stage: test
+  image: rust:1-bookworm
+  cache:
+    key: mcp-fedlex-cargo
+    paths:
+      - .cargo/registry
+      - target
+  before_script:
+    - rustup component add rustfmt clippy
+  script:
+    - cargo fmt --all --check
+    - cargo clippy --workspace --all-targets -- -D warnings
+    - cargo clippy -p fedlex-store --all-targets --features oxigraph-store -- -D warnings
+    - cargo test --workspace
+    - cargo test -p fedlex-store --features oxigraph-store
+
+build-image:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  needs: [test]
+  script:
+    - mkdir -p /kaniko/.docker
+    - >
+      printf '{"auths":{"%s":{"username":"%s","password":"%s"}}}'
+      "$CI_REGISTRY" "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD"
+      > /kaniko/.docker/config.json
+    - >
+      /kaniko/executor
+      --context "dir://$CI_PROJECT_DIR"
+      --dockerfile "$CI_PROJECT_DIR/Dockerfile"
+      --destination "$CI_REGISTRY_IMAGE:latest"
+      --destination "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
