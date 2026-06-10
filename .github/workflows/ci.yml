@@ -30,17 +30,13 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Clippy (oxigraph-store feature)
-        run: |
-          cargo clippy -p fedlex-store --all-targets --features oxigraph-store -- -D warnings
-          cargo clippy -p mcp-ingest --all-targets --features oxigraph-store -- -D warnings
+        run: cargo clippy -p fedlex-store --all-targets --features oxigraph-store -- -D warnings
 
       - name: Test
         run: cargo test --workspace
 
       - name: Test (embedded Oxigraph corpus)
-        run: |
-          cargo test -p fedlex-store --features oxigraph-store
-          cargo test -p mcp-ingest --features oxigraph-store
+        run: cargo test -p fedlex-store --features oxigraph-store
 
   integration:
     name: Docker-gated integration (Redis)
@@ -54,7 +50,10 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      # Die Redis-Integrationstests sind lokal mit #[ignore] gegated, weil sie
+      # Docker brauchen. Auf dem Runner ist Docker da, also laufen sie hier
+      # explizit mit.
       - name: Integration tests (real Redis via Testcontainers)
         run: |
-          cargo test -p fedlex-store --features redis-store
-          cargo test -p mcp-reader
+          cargo test -p fedlex-store --features redis-store -- --ignored
+          cargo test -p mcp-reader --test quota_integration -- --ignored

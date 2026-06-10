@@ -25,6 +25,7 @@ fn claims(session: &str, role: Role) -> VerifiedClaims {
 }
 
 #[tokio::test]
+#[ignore = "braucht Docker (testcontainers); lokal mit `cargo test -- --ignored` ausführen"]
 async fn reader_enforces_distributed_quota_per_claim() {
     let container = Redis::default().start().await.unwrap();
     let host = container.get_host().await.unwrap();

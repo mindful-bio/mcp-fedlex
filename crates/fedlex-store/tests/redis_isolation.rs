@@ -19,6 +19,7 @@ fn ctx(tenant: &str, session: &str) -> TenantContext {
 }
 
 #[tokio::test]
+#[ignore = "braucht Docker (testcontainers); lokal mit `cargo test -- --ignored` ausführen"]
 async fn cross_tenant_isolation_holds_against_real_redis() {
     // Echte Redis-Instanz im Container hochfahren.
     let container = Redis::default().start().await.unwrap();
@@ -51,6 +52,7 @@ async fn cross_tenant_isolation_holds_against_real_redis() {
 }
 
 #[tokio::test]
+#[ignore = "braucht Docker (testcontainers); lokal mit `cargo test -- --ignored` ausführen"]
 async fn put_get_delete_roundtrip_against_real_redis() {
     let container = Redis::default().start().await.unwrap();
     let host = container.get_host().await.unwrap();

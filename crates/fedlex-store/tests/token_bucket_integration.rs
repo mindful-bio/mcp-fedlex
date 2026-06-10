@@ -13,6 +13,7 @@ use testcontainers_modules::redis::Redis;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
 #[tokio::test]
+#[ignore = "braucht Docker (testcontainers); lokal mit `cargo test -- --ignored` ausführen"]
 async fn global_limit_holds_across_simulated_pods() {
     let container = Redis::default().start().await.unwrap();
     let host = container.get_host().await.unwrap();
@@ -55,6 +56,7 @@ async fn global_limit_holds_across_simulated_pods() {
 }
 
 #[tokio::test]
+#[ignore = "braucht Docker (testcontainers); lokal mit `cargo test -- --ignored` ausführen"]
 async fn refill_replenishes_over_time() {
     let container = Redis::default().start().await.unwrap();
     let host = container.get_host().await.unwrap();
