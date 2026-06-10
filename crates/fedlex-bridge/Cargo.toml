@@ -1,0 +1,22 @@
+[package]
+name = "fedlex-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fedlex-core = { path = "../fedlex-core" }
+fedlex-jolux = { path = "../fedlex-jolux" }
+fedlex-akn = { path = "../fedlex-akn" }
+async-trait = "0.1"
+moka = { version = "0.12", features = ["future"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "json"] }
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+time = { version = "0.3", features = ["macros"] }
