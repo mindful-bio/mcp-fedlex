@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use fedlex_bridge::{AknFetcher, HttpSparqlClient, HttpXmlSource};
 use mcp_reader::app::{app, serve};
-use mcp_reader::auth::{AuthResolver, JwtAuthResolver, StaticAuthResolver};
+use mcp_reader::auth::{AuthResolver, JwksAuthResolver, JwtAuthResolver, StaticAuthResolver};
 use mcp_reader::health::HealthState;
 use mcp_reader::probes::{QuotaBackendProbe, SparqlProbe};
 use mcp_reader::quota::{QuotaPolicy, RateLimiter, RedisQuotaBackend};
@@ -77,13 +77,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Wählt den Auth-Resolver anhand der Umgebung.
 ///
-/// Reihenfolge. Erst MCP_JWT_HS256_SECRET, dann MCP_JWT_RS256_PUBKEY_FILE
-/// (PEM-Pfad), zuletzt MCP_DEV_TOKEN. Im JWT-Modus ist MCP_JWT_ISSUER Pflicht
-/// und MCP_JWT_AUDIENCE optional.
+/// Reihenfolge. Erst MCP_JWT_JWKS_URL (rotierende Schlüssel vom IdP), dann
+/// MCP_JWT_HS256_SECRET, dann MCP_JWT_RS256_PUBKEY_FILE (PEM-Pfad), zuletzt
+/// MCP_DEV_TOKEN. Im JWT-Modus ist MCP_JWT_ISSUER Pflicht und
+/// MCP_JWT_AUDIENCE optional.
 fn build_auth_resolver() -> Result<Box<dyn AuthResolver + Send + Sync>, Box<dyn std::error::Error>>
 {
     let issuer = std::env::var("MCP_JWT_ISSUER").ok();
     let audience = std::env::var("MCP_JWT_AUDIENCE").ok();
+
+    if let Ok(url) = std::env::var("MCP_JWT_JWKS_URL") {
+        let issuer = issuer.ok_or("MCP_JWT_ISSUER ist im JWT-Modus Pflicht")?;
+        let refresh_secs: u64 = std::env::var("MCP_JWT_JWKS_REFRESH_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300);
+        let resolver = Arc::new(JwksAuthResolver::new(issuer.clone(), audience));
+        spawn_jwks_refresher(Arc::clone(&resolver), url.clone(), refresh_secs);
+        println!("JWT-Auth aktiv (JWKS {url}, Issuer {issuer}, Refresh {refresh_secs}s)");
+        return Ok(Box::new(resolver));
+    }
 
     if let Ok(secret) = std::env::var("MCP_JWT_HS256_SECRET") {
         let issuer = issuer.ok_or("MCP_JWT_ISSUER ist im JWT-Modus Pflicht")?;
@@ -120,4 +133,29 @@ fn build_auth_resolver() -> Result<Box<dyn AuthResolver + Send + Sync>, Box<dyn 
         println!("Keine Auth-Konfiguration. Server bleibt fail-closed (kein Credential gueltig).");
     }
     Ok(Box::new(auth))
+}
+
+/// Periodischer JWKS-Abruf. Erster Lauf sofort, danach im Intervall.
+///
+/// Fehler beim Abruf lassen den bisherigen Schlüsselsatz unangetastet
+/// (Verfügbarkeit vor Frische). Bis zum ersten Erfolg ist der Satz leer
+/// und der Resolver fail-closed.
+fn spawn_jwks_refresher(resolver: Arc<JwksAuthResolver>, url: String, refresh_secs: u64) {
+    tokio::spawn(async move {
+        let http = reqwest::Client::new();
+        loop {
+            match http.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => match resp.text().await {
+                    Ok(body) => match resolver.install_jwks(&body) {
+                        Ok(n) => println!("JWKS aktualisiert ({n} Schluessel)"),
+                        Err(_) => eprintln!("JWKS nicht parsebar, alter Satz bleibt aktiv"),
+                    },
+                    Err(e) => eprintln!("JWKS-Abruf fehlgeschlagen: {e}"),
+                },
+                Ok(resp) => eprintln!("JWKS-Endpunkt antwortete {}", resp.status()),
+                Err(e) => eprintln!("JWKS-Abruf fehlgeschlagen: {e}"),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(refresh_secs)).await;
+        }
+    });
 }

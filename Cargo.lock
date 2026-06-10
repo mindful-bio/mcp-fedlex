@@ -1304,6 +1304,7 @@ dependencies = [
  "jsonwebtoken",
  "moka",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "testcontainers",

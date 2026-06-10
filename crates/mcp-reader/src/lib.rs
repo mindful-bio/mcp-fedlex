@@ -37,15 +37,15 @@ pub mod xml_engine;
 
 pub use app::{app, serve};
 pub use auth::{
-    AuthError, AuthResolver, ClaimRecord, JwtAuthResolver, Role, StaticAuthResolver,
-    VerifiedClaims,
+    AuthError, AuthResolver, ClaimRecord, JwksAuthResolver, JwtAuthResolver, Role,
+    StaticAuthResolver, VerifiedClaims,
 };
 pub use circuit_breaker::{BreakerConfig, BreakerError, BreakerState, CircuitBreaker};
 pub use health::{health_router, HealthState, ReadinessProbe};
-pub use probes::{QuotaBackendProbe, SparqlProbe};
 pub use lod_gateway::{
     ConnectorError, EliResolver, ExternalConnector, Origin, ResolveError, Resolved,
 };
+pub use probes::{QuotaBackendProbe, SparqlProbe};
 pub use quota::{Decision, QuotaBackend, QuotaError, QuotaPolicy, RateLimiter, RedisQuotaBackend};
 pub use registry::Registry;
 pub use sandbox::{SandboxError, SearchSandbox};

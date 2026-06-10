@@ -513,9 +513,7 @@ where
             compare_raw,
             time::macros::format_description!("[year]-[month]-[day]"),
         )
-        .map_err(|_| {
-            ToolError::InvalidArguments("`compare_to` muss ISO YYYY-MM-DD sein".into())
-        })?;
+        .map_err(|_| ToolError::InvalidArguments("`compare_to` muss ISO YYYY-MM-DD sein".into()))?;
 
         // Basis-Fassung zum Anfrage-Stichtag, Vergleichs-Fassung zu compare_to.
         // Die Provenance der Antwort gehört zur Basis-Fassung (ctx.stamp).
@@ -655,10 +653,8 @@ mod tests {
             )
             .verify("c")
             .unwrap();
-        let stamp = TemporalResolver::new(date!(2026 - 06 - 01)).stamp_at(
-            None,
-            TransactionTime::new(datetime!(2026-06-10 09:00 UTC)),
-        );
+        let stamp = TemporalResolver::new(date!(2026 - 06 - 01))
+            .stamp_at(None, TransactionTime::new(datetime!(2026-06-10 09:00 UTC)));
         ToolContext { claims, stamp }
     }
 
@@ -769,7 +765,11 @@ mod tests {
     #[tokio::test]
     async fn get_references_returns_empty_list_for_refless_act() {
         let out = registry()
-            .dispatch(&ctx(), "get_references", json!({ "eli": "eli/cc/2017/762" }))
+            .dispatch(
+                &ctx(),
+                "get_references",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
             .await;
         assert!(out["data"].as_array().unwrap().is_empty(), "war: {out}");
         assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
@@ -850,7 +850,10 @@ mod tests {
                 json!({ "eli": "eli/cc/2017/762", "eid": "art_1/para_1" }),
             )
             .await;
-        assert!(out["error"].as_str().unwrap().contains("erwartet <article>"));
+        assert!(out["error"]
+            .as_str()
+            .unwrap()
+            .contains("erwartet <article>"));
     }
 
     #[tokio::test]

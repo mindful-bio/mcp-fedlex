@@ -143,8 +143,8 @@ struct JwtClaims {
 ///
 /// Verifiziert signierte Tokens mit statischem Schlüsselmaterial (HS256-Secret
 /// oder RS256-Public-Key im PEM-Format). Issuer ist Pflicht, Audience
-/// optional. JWKS-Rotation ist bewusst noch nicht dabei, der Schlüssel kommt
-/// als Secret ins Deployment und der Trait bleibt synchron.
+/// optional. Für rotierende Schlüssel vom IdP-Endpunkt siehe
+/// [`JwksAuthResolver`].
 ///
 /// Alle Token-Fehler kollabieren nach aussen zu [`AuthError::InvalidCredential`],
 /// damit ein Angreifer aus der Fehlermeldung nichts über Signatur, Ablauf oder
@@ -213,6 +213,113 @@ impl AuthResolver for JwtAuthResolver {
             session,
             role,
         })
+    }
+}
+
+/// JWKS-basierter Resolver mit rotierendem Schlüsselsatz.
+///
+/// Der Schlüsselsatz kommt vom JWKS-Endpunkt des IdP und wird über
+/// [`JwksAuthResolver::install_jwks`] atomar getauscht. Den periodischen
+/// Abruf übernimmt ein Hintergrund-Task in main.rs, damit der Trait synchron
+/// bleibt. Bis zum ersten erfolgreichen Abruf ist der Satz leer und der
+/// Resolver fail-closed.
+///
+/// Die Schlüsselwahl läuft über die `kid` im Token-Header. Tokens ohne `kid`
+/// oder mit unbekannter `kid` werden abgewiesen. Nach einer Rotation bleiben
+/// alte Schlüssel nur gültig, solange der IdP sie im JWKS weiter publiziert.
+pub struct JwksAuthResolver {
+    keys: std::sync::RwLock<
+        std::collections::HashMap<String, (jsonwebtoken::DecodingKey, jsonwebtoken::Algorithm)>,
+    >,
+    issuer: String,
+    audience: Option<String>,
+}
+
+impl JwksAuthResolver {
+    /// Erzeugt den Resolver mit leerem Schlüsselsatz (fail-closed).
+    pub fn new(issuer: impl Into<String>, audience: Option<String>) -> Self {
+        Self {
+            keys: std::sync::RwLock::new(std::collections::HashMap::new()),
+            issuer: issuer.into(),
+            audience,
+        }
+    }
+
+    /// Tauscht den Schlüsselsatz gegen den Inhalt eines JWKS-Dokuments.
+    ///
+    /// Liefert die Anzahl übernommener Schlüssel. Schlüssel ohne `kid` oder
+    /// ohne verwertbaren Algorithmus werden übersprungen. Ein nicht parsebares
+    /// Dokument lässt den bisherigen Satz unangetastet.
+    pub fn install_jwks(&self, jwks_json: &str) -> Result<usize, AuthError> {
+        let set: jsonwebtoken::jwk::JwkSet =
+            serde_json::from_str(jwks_json).map_err(|_| AuthError::InvalidCredential)?;
+
+        let mut next = std::collections::HashMap::new();
+        for jwk in &set.keys {
+            let Some(kid) = jwk.common.key_id.clone() else {
+                continue;
+            };
+            let Ok(key) = jsonwebtoken::DecodingKey::from_jwk(jwk) else {
+                continue;
+            };
+            let Some(alg) = Self::algorithm_of(jwk) else {
+                continue;
+            };
+            next.insert(kid, (key, alg));
+        }
+
+        let count = next.len();
+        *self.keys.write().expect("lock poisoned") = next;
+        Ok(count)
+    }
+
+    /// Algorithmus eines JWK. Erst `alg`-Feld, sonst Ableitung aus dem Key-Typ.
+    fn algorithm_of(jwk: &jsonwebtoken::jwk::Jwk) -> Option<jsonwebtoken::Algorithm> {
+        use jsonwebtoken::jwk::AlgorithmParameters;
+        if let Some(ka) = jwk.common.key_algorithm {
+            if let Ok(alg) = ka.to_string().parse() {
+                return Some(alg);
+            }
+        }
+        match &jwk.algorithm {
+            AlgorithmParameters::RSA(_) => Some(jsonwebtoken::Algorithm::RS256),
+            AlgorithmParameters::OctetKey(_) => Some(jsonwebtoken::Algorithm::HS256),
+            AlgorithmParameters::EllipticCurve(_) => Some(jsonwebtoken::Algorithm::ES256),
+            _ => None,
+        }
+    }
+}
+
+impl AuthResolver for JwksAuthResolver {
+    fn verify(&self, credential: &str) -> Result<VerifiedClaims, AuthError> {
+        let header =
+            jsonwebtoken::decode_header(credential).map_err(|_| AuthError::InvalidCredential)?;
+        let kid = header.kid.ok_or(AuthError::InvalidCredential)?;
+
+        let keys = self.keys.read().expect("lock poisoned");
+        let (key, alg) = keys.get(&kid).ok_or(AuthError::InvalidCredential)?;
+        let validation = JwtAuthResolver::validation(*alg, &self.issuer, self.audience.as_deref());
+
+        let token = jsonwebtoken::decode::<JwtClaims>(credential, key, &validation)
+            .map_err(|_| AuthError::InvalidCredential)?;
+        drop(keys);
+
+        let tenant = TenantId::from_claim(token.claims.tenant)?;
+        let session = SessionId::from_claim(token.claims.sid)?;
+        let role = JwtAuthResolver::role_from_claim(&token.claims.role)?;
+
+        Ok(VerifiedClaims {
+            tenant,
+            session,
+            role,
+        })
+    }
+}
+
+/// Arc-Variante für den geteilten Zugriff von Service und Refresh-Task.
+impl AuthResolver for std::sync::Arc<JwksAuthResolver> {
+    fn verify(&self, credential: &str) -> Result<VerifiedClaims, AuthError> {
+        (**self).verify(credential)
     }
 }
 
@@ -358,5 +465,104 @@ mod tests {
         let boxed: Box<dyn AuthResolver + Send + Sync> = Box::new(jwt_resolver());
         assert!(boxed.verify(&sign(valid_claims())).is_ok());
         assert!(boxed.verify("kein-jwt").is_err());
+    }
+
+    // --- JWKS-Rotation ---------------------------------------------------
+
+    /// JWKS mit einem symmetrischen Schlüssel (oct) unter gegebener kid.
+    /// `k` ist base64url("test-secret").
+    fn jwks_with_kid(kid: &str) -> String {
+        serde_json::json!({
+            "keys": [{
+                "kty": "oct",
+                "kid": kid,
+                "alg": "HS256",
+                "k": "dGVzdC1zZWNyZXQ",
+            }]
+        })
+        .to_string()
+    }
+
+    fn sign_with_kid(claims: serde_json::Value, kid: &str) -> String {
+        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+        header.kid = Some(kid.into());
+        jsonwebtoken::encode(
+            &header,
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(JWT_SECRET),
+        )
+        .unwrap()
+    }
+
+    fn jwks_resolver() -> JwksAuthResolver {
+        let r = JwksAuthResolver::new(ISSUER, Some("mcp-fedlex".into()));
+        assert_eq!(r.install_jwks(&jwks_with_kid("k1")).unwrap(), 1);
+        r
+    }
+
+    #[test]
+    fn jwks_valid_token_with_known_kid_is_accepted() {
+        let claims = jwks_resolver()
+            .verify(&sign_with_kid(valid_claims(), "k1"))
+            .unwrap();
+        assert_eq!(claims.tenant().as_str(), "kanzlei-a");
+        assert_eq!(claims.role(), Role::Navigator);
+    }
+
+    #[test]
+    fn jwks_unknown_or_missing_kid_is_rejected() {
+        let r = jwks_resolver();
+        // Unbekannte kid.
+        assert!(matches!(
+            r.verify(&sign_with_kid(valid_claims(), "k9")),
+            Err(AuthError::InvalidCredential)
+        ));
+        // Token ohne kid (signiert mit demselben Secret).
+        assert!(matches!(
+            r.verify(&sign(valid_claims())),
+            Err(AuthError::InvalidCredential)
+        ));
+    }
+
+    #[test]
+    fn jwks_is_fail_closed_until_first_install() {
+        let r = JwksAuthResolver::new(ISSUER, None);
+        assert!(matches!(
+            r.verify(&sign_with_kid(valid_claims(), "k1")),
+            Err(AuthError::InvalidCredential)
+        ));
+    }
+
+    #[test]
+    fn jwks_rotation_swaps_the_key_set() {
+        let r = jwks_resolver();
+        let old_token = sign_with_kid(valid_claims(), "k1");
+        assert!(r.verify(&old_token).is_ok());
+
+        // Rotation. k1 verschwindet aus dem JWKS, k2 kommt.
+        r.install_jwks(&jwks_with_kid("k2")).unwrap();
+        assert!(matches!(
+            r.verify(&old_token),
+            Err(AuthError::InvalidCredential)
+        ));
+        assert!(r.verify(&sign_with_kid(valid_claims(), "k2")).is_ok());
+    }
+
+    #[test]
+    fn jwks_garbage_document_keeps_previous_keys() {
+        let r = jwks_resolver();
+        assert!(r.install_jwks("kein json").is_err());
+        // Der alte Satz bleibt aktiv.
+        assert!(r.verify(&sign_with_kid(valid_claims(), "k1")).is_ok());
+    }
+
+    #[test]
+    fn arc_jwks_resolver_dispatches() {
+        let arc = std::sync::Arc::new(jwks_resolver());
+        let boxed: Box<dyn AuthResolver + Send + Sync> = Box::new(std::sync::Arc::clone(&arc));
+        assert!(boxed.verify(&sign_with_kid(valid_claims(), "k1")).is_ok());
+        // Rotation über das geteilte Handle wirkt auf den geboxten Resolver.
+        arc.install_jwks(&jwks_with_kid("k2")).unwrap();
+        assert!(boxed.verify(&sign_with_kid(valid_claims(), "k1")).is_err());
     }
 }
