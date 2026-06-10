@@ -1,6 +1,6 @@
 // ============================================================
 // mcp-fedlex - Föderierter "Agentic Legal Navigator" (MCP-Server)
-// views.c4 (v6.1) - Vision-, CQRS-, Plan- und Komponenten-Sichten
+// views.c4 (v7.0) - Vision-, Direct-Fetch-, Plan- und Komponenten-Sichten
 // ============================================================
 views {
 
@@ -9,18 +9,15 @@ views {
   // ========================================================
   view vision {
     title '1 - Vision: Föderierter Agentic Legal Navigator (Context)'
-    description 'Das große Bild. Autonome LLM-Agenten sprechen via SSE mit dem zustandslosen MCP-Reader (Auth gegen IdP/Vault). Ein eigenständiges, event-getriebenes Ingestion-System (Writer) konsumiert New-Release-Events vom Broker und befüllt die verteilten Stores (Redis/Qdrant), aus denen der Reader liest. Föderale & internationale Rechtsgebiete werden dynamisch über das LOD-Netzwerk integriert, alles lückenlos in die Observability exportiert.'
+    description 'Das große Bild. Autonome LLM-Agenten sprechen via Streamable HTTP mit dem zustandslosen MCP-Reader (Auth gegen IdP/Vault). Der Reader holt Bundesrecht direkt und stichtagsgenau von Fedlex (Direct Fetch via fedlex-bridge) - ohne eigene Korpus-Kopie. Die hybride RAG-Variante (Embedding/Vektor) lebt als optionales Add-on in semantic-fedlex. Föderale & internationale Rechtsgebiete werden dynamisch über das LOD-Netzwerk integriert, alles lückenlos in die Observability exportiert.'
 
     include
       llmAgent,
       legalEngineer,
       mcp,
-      ingestionSystem,
-      etl,
-      messageBroker,
+      fedlex,
       sharedCache,
       semanticService,
-      sharedGraphStore,
       idpVault,
       lodFederation,
       lodFederation.cantonLod,
@@ -34,33 +31,35 @@ views {
     style lodFederation._ {
       color amber
     }
+    style fedlex {
+      color green
+    }
   }
 
   // ========================================================
-  // 2. CQRS VIEW (Reader/Writer-Trennung & verteilter State)
+  // 2. DIRECT-FETCH VIEW (v1-Datenpfad & Skalierungs-Stufe)
   // ========================================================
-  view cqrs {
-    title '2 - CQRS: Reader/Writer-Trennung & verteilter State'
-    description 'Der Schreibpfad (Ingestion, Writer) ist vom Lesepfad (MCP, Reader) entkoppelt: ETL pusht Events über den Broker an den Writer, der Redis (L2) und den Oxigraph-Graph befüllt und Embedding/Vektor an semantic-fedlex delegiert. Der zustandslose Reader skaliert horizontal in Kubernetes und liest nur aus den geteilten Stores.'
+  view directfetch {
+    title '2 - Direct Fetch: Fedlex als Quelle, Stores als Skalierungs-Stufe'
+    description 'Der v1-Datenpfad (live verifiziert): die fedlex-bridge löst per SPARQL die Stichtagsfassung auf, lädt die immutable XML-Manifestation und parst sie - gecached im lokalen moka-Store (Key = Manifestations-URL, keine Invalidierung nötig). Redis trägt nur Session-State & Quotas. Der Oxigraph-Korpus-Spiegel ist eine deferred Skalierungs-Stufe für Latenz-/Verfügbarkeits-Anforderungen.'
 
     include
-      etl,
-      messageBroker,
-      ingestionSystem,
-      sharedCache,
-      semanticService,
-      sharedGraphStore,
+      llmAgent,
       mcp,
-      llmAgent
+      mcp.fedlexBridge,
+      mcp.l1Cache,
+      fedlex,
+      sharedCache,
+      sharedGraphStore
 
     style mcp {
       color sky
     }
-    style ingestionSystem {
-      color red
+    style fedlex {
+      color green
     }
-    style sharedCache, sharedGraphStore, messageBroker {
-      color indigo
+    style sharedGraphStore {
+      opacity 40%
     }
   }
 
@@ -69,39 +68,24 @@ views {
   // ========================================================
   view plan of mcp {
     title '3 - Plan: MCP-Reader Architektur (Container)'
-    description 'Zustandsloser Reader: SSE-Transport (Rate Limiter & Auth), MCP-Registry (Tools/Resources/Prompts/Workspace + Temporal Resolver, Tool-Dispatcher & globale Graceful-Failure-Middleware), XML/AKN-Engine (Execution Sandbox), lokaler L1-DOM-Cache (moka), Federated URI-Resolver (Circuit Breaker), dünner Semantic-Search-Client (zu semantic-fedlex) und Observability-Layer. Persistenter State liegt extern in Redis (L2) + Oxigraph-Graph; Embedding/Vektor via semantic-fedlex.'
+    description 'Zustandsloser Reader: Streamable-HTTP-Transport (Rate Limiter & Auth), MCP-Registry (Tools/Resources/Prompts/Workspace + Temporal Resolver, Tool-Dispatcher & globale Graceful-Failure-Middleware), XML/AKN-Engine (Execution Sandbox), Fedlex-Bridge (Direct Fetch, jolux+akn-Primitive), lokaler L1-DOM-Cache (moka), Federated URI-Resolver (Circuit Breaker), dünner Semantic-Search-Client (zu semantic-fedlex) und Observability-Layer. Session-State & Quotas liegen in Redis; der Korpus bleibt bei Fedlex.'
 
     include
       *,
       llmAgent,
       idpVault,
+      fedlex,
       sharedCache,
       semanticService,
-      sharedGraphStore,
-      messageBroker,
       lodFederation,
       observabilityStack
 
     style mcp.semanticClient {
       opacity 40%
     }
-  }
-
-  // ========================================================
-  // 4. INGESTION PLAN VIEW (Container des WRITER)
-  // ========================================================
-  view ingestion_plan of ingestionSystem {
-    title '4 - Plan: Ingestion-Writer Architektur (Container)'
-    description 'Event-getriebener Schreibpfad: Event Consumer subscribed den Broker (Poison-Releases wandern in die DLQ statt Endlos-Retry), der Parser lädt & verarbeitet das XML-Release aus der ETL, der Indexer schreibt idempotent nach Redis (DOM/Referenzen) und Oxigraph (JOLux-Graph) und reiht Embedding-Aufträge in die transaktionale Outbox ein, die mit Retry/Backoff an semantic-fedlex zustellt (kein stiller Index-Drift).'
-
-    include
-      *,
-      etl,
-      messageBroker,
-      sharedCache,
-      semanticService,
-      sharedGraphStore,
-      observabilityStack
+    style fedlex {
+      color green
+    }
   }
 
   // ========================================================
@@ -132,42 +116,46 @@ views {
       sharedCache
   }
 
-  // 5c - ELI/ECLI-Resolver: lokale Graph-Walks + Circuit Breaking
+  // 5c - ELI/ECLI-Resolver: Bridge für Bundesrecht + Circuit Breaking nach außen
   view component_lod_gateway of mcp.lodGateway {
-    title '5c - ELI/ECLI-Resolver, JOLux-Graph & Circuit Breaking'
-    description 'Der ELI/ECLI-Resolver nutzt ELI als gemeinsames URI-Schema (Bund/Kanton/EU) und entscheidet zwischen lokalem JOLux-Graph-Store (SPARQL-Walks, deterministisch), Distributed Cache und externem Proxy. Der Circuit Breaker blockt defekte/langsame Endpunkte sofort ab, bevor der HTTP-Connector-Pool externe LOD-Quellen anspricht.'
+    title '5c - ELI/ECLI-Resolver, Fedlex-Bridge & Circuit Breaking'
+    description 'Der ELI/ECLI-Resolver nutzt ELI als gemeinsames URI-Schema (Bund/Kanton/EU) und routet pro Referenz: Bundesrecht direkt über die fedlex-bridge (jolux-Primitive), föderale/fremde Quellen über den HTTP-Connector-Pool. Der Circuit Breaker blockt defekte/langsame externe Endpunkte sofort ab. Der Oxigraph-Spiegel bleibt deferred.'
     include
       *,
       mcp.mcpRegistry,
-      sharedCache,
+      mcp.fedlexBridge,
       sharedGraphStore,
       lodFederation,
       lodFederation.cantonLod,
       lodFederation.communeLod,
       lodFederation.foreignLod
+
+    style sharedGraphStore {
+      opacity 40%
+    }
   }
 
   // 5d - Agentic Design & Query-Sandboxing der XML/AKN-Engine
   view component_agentic_engine of mcp.xmlEngine {
     title '5d - XML/AKN-Engine: Makro-Tools, Pagination & Execution Sandbox'
-    description 'LLM-Optimierung: Paginierung gegen Context-Overflow, Makro-Tools (XML-Diffing zu destilliertem Markdown) und die Execution Sandbox & Timeout Guard, die halluzinierte XPath/Regex-Queries via spawn_blocking + harter Deadline gegen DoS absichert. Liest fertig geparste Bäume aus dem lokalen L1-Cache (Miss -> L2/Redis).'
+    description 'LLM-Optimierung: Paginierung gegen Context-Overflow, Makro-Tools (XML-Diffing zu destilliertem Markdown) und die Execution Sandbox & Timeout Guard, die halluzinierte XPath/Regex-Queries via spawn_blocking + harter Deadline gegen DoS absichert. Beschafft AKN-Dokumente über die Fedlex-Bridge (gecached in moka).'
     include
       *,
       mcp.mcpRegistry,
-      mcp.l1Cache,
-      sharedCache
+      mcp.fedlexBridge,
+      mcp.l1Cache
   }
 
-  // 5g - Two-Tier Caching (L1/L2) & Broker-Invalidierung
+  // 5g - Caching: immutable Manifestationen, kein Invalidierungs-Problem
   view component_caching {
-    title '5g - Two-Tier Caching (L1/L2) & Invalidierung'
-    description 'L1 (moka, pro Reader-Pod) hält fertig geparste Rust-DOM-Bäume; bei Miss lädt L1 rohe AKN-Bytes aus L2 (Redis). Schreibt der Writer eine neue bi-temporale Version, publiziert er ein Invalidierungs-Event über den Broker, das die L1-Caches aller Reader gezielt evictet - so bleibt der Reader zustandslos und trotzdem konsistent.'
+    title '5g - Caching: Immutable Manifestationen (moka)'
+    description 'Die Bridge cached geparste AKN-Dokumente in moka, Schlüssel ist die Manifestations-URL. Da Fedlex-Manifestationen immutable sind (neue Fassung = neue URL), entfällt das Invalidierungs-Problem strukturell - kein Broker, kein Event-Bus. Der Temporal Resolver garantiert, dass verschiedene Stichtage auf die korrekte Fassungs-URL auflösen. Redis hält nur Session-State & verteilte Quotas.'
     include
       mcp.xmlEngine,
+      mcp.fedlexBridge,
       mcp.l1Cache,
-      sharedCache,
-      messageBroker,
-      ingestionSystem.indexWriter
+      fedlex,
+      sharedCache
   }
 
   // 5e - Semantic-Search-Client (zu semantic-fedlex)
@@ -183,13 +171,14 @@ views {
   // 5f - Observability als Cross-Cutting Concern
   view component_observability of mcp.observabilityLayer {
     title '5f - Observability & PII-Scrubbing (Cross-Cutting)'
-    description 'Alle Reader-Container (Transport, MCP-Registry, XML-Engine, LOD-Gateway) senden Spans & Metriken an den OTel-Layer; der Writer exportiert direkt. Vor dem OTLP-Export an die externen Dashboards maskiert der PII-Scrubber Mandanten-Daten (Compliance-Gate, ADR-001).'
+    description 'Alle Reader-Container (Transport, MCP-Registry, XML-Engine, LOD-Gateway, Fedlex-Bridge) senden Spans & Metriken an den OTel-Layer. Vor dem OTLP-Export an die externen Dashboards maskiert der PII-Scrubber Mandanten-Daten (Compliance-Gate, ADR-001).'
     include
       *,
       mcp.transport,
       mcp.mcpRegistry,
       mcp.xmlEngine,
       mcp.lodGateway,
+      mcp.fedlexBridge,
       observabilityStack
   }
 }

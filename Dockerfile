@@ -18,9 +18,10 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates/fedlex-core/Cargo.toml      crates/fedlex-core/Cargo.toml
 COPY crates/fedlex-store/Cargo.toml     crates/fedlex-store/Cargo.toml
 COPY crates/fedlex-jolux/Cargo.toml     crates/fedlex-jolux/Cargo.toml
+COPY crates/fedlex-akn/Cargo.toml       crates/fedlex-akn/Cargo.toml
+COPY crates/fedlex-bridge/Cargo.toml    crates/fedlex-bridge/Cargo.toml
 COPY crates/fedlex-telemetry/Cargo.toml crates/fedlex-telemetry/Cargo.toml
 COPY crates/mcp-reader/Cargo.toml       crates/mcp-reader/Cargo.toml
-COPY crates/mcp-ingest/Cargo.toml       crates/mcp-ingest/Cargo.toml
 
 # Jetzt die Quellen.
 COPY crates/ crates/

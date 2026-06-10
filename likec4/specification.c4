@@ -1,6 +1,6 @@
 // ============================================================
 // mcp-fedlex - Föderierter "Agentic Legal Navigator" (MCP-Server)
-// specification.c4 (v6.0) - Element-, Tag- und Relationship-Arten
+// specification.c4 (v7.0) - Element-, Tag- und Relationship-Arten
 // ============================================================
 specification {
 
@@ -74,9 +74,6 @@ specification {
   tag reader {
     color #0ea5e9
   }
-  tag writer {
-    color #db2777
-  }
   tag state {
     color #4f46e5
   }
@@ -85,20 +82,12 @@ specification {
   }
 
   // ---------- Relationship-Arten ----------
-  relationship sse {
-    notation 'HTTP Server-Sent Events (JSON-RPC)'
+  relationship mcptransport {
+    notation 'MCP Streamable HTTP (JSON-RPC)'
   }
   relationship http {
     notation 'HTTP / SPARQL Connector'
     color amber
-  }
-  relationship feed {
-    notation 'Datenzufuhr (Korpus / RDF)'
-  }
-  relationship event {
-    notation 'Event (Pub/Sub)'
-    color indigo
-    line dashed
   }
   relationship data {
     notation 'Verteilter State-/Daten-Zugriff (Redis/Qdrant)'
