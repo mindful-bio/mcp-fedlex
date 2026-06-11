@@ -253,6 +253,38 @@ impl AknDocument {
         tidy(&out)
     }
 
+    /// Wie [`text_of`](Self::text_of), aber ohne `<table>`-Teilbäume.
+    ///
+    /// Für das Tabellen-Splitting beim Chunking (X13.3). Der Fliesstext und
+    /// die Tabellen werden dort getrennt gechunkt, damit übergrosse Tabellen
+    /// den Prosa-Chunk nicht sprengen.
+    pub fn text_without_tables(&self, id: NodeId) -> String {
+        let mut out = String::new();
+        self.write_text_excluding(id, &mut out, "table");
+        tidy(&out)
+    }
+
+    fn write_text_excluding(&self, id: NodeId, out: &mut String, excluded: &str) {
+        for c in &self.nodes[id].content {
+            match c {
+                Content::Text(t) => out.push_str(t),
+                Content::Element(e) => {
+                    let tag = self.tag(*e);
+                    if tag == "authorialNote" || tag == "foreign" || tag == excluded {
+                        continue;
+                    }
+                    self.write_text_excluding(*e, out, excluded);
+                    match tag {
+                        "num" | "td" | "th" => out.push(' '),
+                        "p" | "paragraph" | "heading" | "item" | "listIntroduction" | "intro"
+                        | "tr" | "block" | "content" => out.push('\n'),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
     fn write_text(&self, id: NodeId, out: &mut String) {
         for c in &self.nodes[id].content {
             match c {

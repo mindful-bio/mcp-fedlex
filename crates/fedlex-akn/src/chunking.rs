@@ -136,10 +136,10 @@ pub fn chunk_document(doc: &AknDocument) -> Result<Vec<Chunk>, AknError> {
                 // Chunk statt stillschweigend zu verschwinden.
                 if text.chars().count() > SPLIT_THRESHOLD && !paras.is_empty() {
                     for para in paras {
-                        push_chunk(&mut chunks, doc, &base, Some(para), doc.text_of(para));
+                        push_chunks_table_aware(&mut chunks, doc, &base, para);
                     }
                 } else {
-                    push_chunk(&mut chunks, doc, &base, Some(art), text);
+                    push_chunks_table_aware(&mut chunks, doc, &base, art);
                 }
             }
         }
@@ -147,13 +147,13 @@ pub fn chunk_document(doc: &AknDocument) -> Result<Vec<Chunk>, AknError> {
             for lvl in doc.find_all(body, "level") {
                 // Nur Level-Blätter (kein Kind-Level) — Eltern sind redundant (X20.2).
                 if doc.find_all(lvl, "level").len() == 1 {
-                    push_chunk(&mut chunks, doc, &base, Some(lvl), doc.text_of(lvl));
+                    push_chunks_table_aware(&mut chunks, doc, &base, lvl);
                 }
             }
         }
         DocPattern::Amendment => {
             for m in doc.find_all(body, "mod") {
-                push_chunk(&mut chunks, doc, &base, Some(m), doc.text_of(m));
+                push_chunks_table_aware(&mut chunks, doc, &base, m);
             }
         }
         DocPattern::NoBody => {
@@ -235,6 +235,119 @@ fn push_chunk(
     node: Option<NodeId>,
     text: String,
 ) {
+    push_chunk_suffixed(chunks, doc, base, node, None, text);
+}
+
+/// Chunkt einen Knoten tabellen-bewusst (X13.3).
+///
+/// Sprengt der Knotentext die Split-Schwelle und enthält er Tabellen, wird
+/// der Fliesstext ohne Tabellen EIN Chunk und jede Tabelle ein eigener.
+/// Übergrosse Tabellen werden zeilengruppenweise gesplittet, die Kopfzeile
+/// wird jeder Gruppe vorangestellt, damit die Spalten lesbar bleiben.
+/// Tabellen sind semantische Einheiten und werden nie mitten in der Zeile
+/// getrennt (X13.2).
+fn push_chunks_table_aware(
+    chunks: &mut Vec<Chunk>,
+    doc: &AknDocument,
+    base: &BaseMeta,
+    node: NodeId,
+) {
+    let text = doc.text_of(node);
+    let tables = doc.find_all(node, "table");
+    if text.chars().count() <= SPLIT_THRESHOLD || tables.is_empty() {
+        push_chunk(chunks, doc, base, Some(node), text);
+        return;
+    }
+
+    // Fliesstext ohne Tabellen behält die Stamm-Chunk-ID des Knotens.
+    push_chunk(chunks, doc, base, Some(node), doc.text_without_tables(node));
+
+    for (t_idx, &table) in tables.iter().enumerate() {
+        let suffix = format!("tbl{}", t_idx + 1);
+        let table_text = doc.text_of(table);
+        if table_text.chars().count() <= SPLIT_THRESHOLD {
+            push_chunk_suffixed(chunks, doc, base, Some(node), Some(&suffix), table_text);
+            continue;
+        }
+
+        // Übergross. Zeilengruppen bilden, Kopfzeile wiederholen.
+        let trs = doc.find_all(table, "tr");
+        let header = trs
+            .first()
+            .filter(|&&tr| doc.children(tr).any(|c| doc.tag(c) == "th"))
+            .map(|&tr| doc.text_of(tr));
+        let data_rows: Vec<String> = trs
+            .iter()
+            .skip(usize::from(header.is_some()))
+            .map(|&tr| doc.text_of(tr))
+            .filter(|t| !t.is_empty())
+            .collect();
+
+        let header_len = header.as_ref().map_or(0, |h| h.chars().count() + 1);
+        let mut group = String::new();
+        let mut part = 1usize;
+        for row in data_rows {
+            let would_be = header_len + group.chars().count() + row.chars().count() + 1;
+            if !group.is_empty() && would_be > SPLIT_THRESHOLD {
+                flush_table_group(
+                    chunks,
+                    doc,
+                    base,
+                    node,
+                    &suffix,
+                    &mut part,
+                    header.as_deref(),
+                    std::mem::take(&mut group),
+                );
+            }
+            if !group.is_empty() {
+                group.push('\n');
+            }
+            group.push_str(&row);
+        }
+        if !group.is_empty() {
+            flush_table_group(
+                chunks,
+                doc,
+                base,
+                node,
+                &suffix,
+                &mut part,
+                header.as_deref(),
+                group,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn flush_table_group(
+    chunks: &mut Vec<Chunk>,
+    doc: &AknDocument,
+    base: &BaseMeta,
+    node: NodeId,
+    suffix: &str,
+    part: &mut usize,
+    header: Option<&str>,
+    group: String,
+) {
+    let text = match header {
+        Some(h) => format!("{h}\n{group}"),
+        None => group,
+    };
+    let part_suffix = format!("{suffix}/part{part}");
+    push_chunk_suffixed(chunks, doc, base, Some(node), Some(&part_suffix), text);
+    *part += 1;
+}
+
+fn push_chunk_suffixed(
+    chunks: &mut Vec<Chunk>,
+    doc: &AknDocument,
+    base: &BaseMeta,
+    node: Option<NodeId>,
+    suffix: Option<&str>,
+    text: String,
+) {
     if text.is_empty() {
         return;
     }
@@ -248,9 +361,13 @@ fn push_chunk(
         })
         .unwrap_or_default();
     let eli = base.eli.clone().unwrap_or_default();
-    let chunk_id = match &eid {
+    let stem = match &eid {
         Some(e) => format!("{eli}#{e}"),
         None => format!("{eli}#idx{}", chunks.len()),
+    };
+    let chunk_id = match suffix {
+        Some(s) => format!("{stem}/{s}"),
+        None => stem,
     };
     chunks.push(Chunk {
         chunk_id,
@@ -337,6 +454,76 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].text.chars().count() > 2000);
         assert_eq!(chunks[0].metadata.eid.as_deref(), Some("art_1"));
+    }
+
+    /// Baut einen Artikel mit Prosa und einer Tabelle mit `rows` Datenzeilen.
+    fn doc_with_table(rows: usize) -> AknDocument {
+        let mut table = String::from("<tr><th>Stoff</th><th>Grenzwert</th></tr>");
+        for i in 0..rows {
+            table.push_str(&format!(
+                "<tr><td>Stoff Nummer {i} mit einem laengeren Namen</td><td>Grenzwert {i} \
+                 Milligramm pro Kubikmeter Abluft</td></tr>"
+            ));
+        }
+        let xml = format!(
+            r#"<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+              <act name="publicLaw"><meta><identification>
+                <FRBRWork><FRBRuri value="/eli/cc/2000/1"/></FRBRWork>
+                <FRBRExpression><FRBRlanguage language="de"/></FRBRExpression>
+              </identification></meta>
+              <body><article eId="art_1"><num>Art. 1</num>
+                <content><p>Die Grenzwerte richten sich nach folgender Tabelle.</p>
+                <table eId="art_1/tbl_1">{table}</table></content>
+              </article></body></act></akomaNtoso>"#
+        );
+        AknDocument::parse(&xml).unwrap()
+    }
+
+    #[test]
+    fn small_table_stays_inside_article_chunk() {
+        let chunks = chunk_document(&doc_with_table(3)).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].text.contains("Stoff Nummer 2"));
+    }
+
+    #[test]
+    fn oversized_table_is_split_into_row_groups_with_repeated_header() {
+        let chunks = chunk_document(&doc_with_table(120)).unwrap();
+        // Prosa-Chunk plus mehrere Tabellen-Teile.
+        assert!(
+            chunks.len() > 2,
+            "erwartet Prosa + Teile, war {}",
+            chunks.len()
+        );
+
+        let prose = &chunks[0];
+        assert_eq!(prose.chunk_id, "eli/cc/2000/1#art_1");
+        assert!(prose.text.contains("Grenzwerte richten sich"));
+        assert!(
+            !prose.text.contains("Stoff Nummer"),
+            "Tabelle gehoert nicht in den Prosa-Chunk"
+        );
+
+        // Jeder Teil traegt die wiederholte Kopfzeile und bleibt unter der Schwelle.
+        let parts: Vec<&Chunk> = chunks[1..].iter().collect();
+        for (i, part) in parts.iter().enumerate() {
+            assert_eq!(
+                part.chunk_id,
+                format!("eli/cc/2000/1#art_1/tbl1/part{}", i + 1)
+            );
+            assert!(part.text.starts_with("Stoff Grenzwert"));
+            assert!(part.text.chars().count() <= SPLIT_THRESHOLD + 100);
+            assert_eq!(part.metadata.eid.as_deref(), Some("art_1"));
+        }
+
+        // Keine Zeile geht verloren.
+        let all: String = parts.iter().map(|c| c.text.as_str()).collect();
+        for i in [0usize, 59, 119] {
+            assert!(
+                all.contains(&format!("Stoff Nummer {i}")),
+                "Zeile {i} fehlt"
+            );
+        }
     }
 
     #[test]
