@@ -14,7 +14,7 @@
 //! ([`router`]) verdrahtet ihn an HTTP und SSE.
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
 use axum::extract::State;
@@ -29,7 +29,9 @@ use serde_json::{json, Value};
 use time::macros::format_description;
 use time::Date;
 
-use crate::auth::AuthResolver;
+use fedlex_telemetry::{AttributeAllowlist, SpanScrubber};
+
+use crate::auth::{AuthResolver, VerifiedClaims};
 use crate::quota::QuotaBackend;
 use crate::quota::RateLimiter;
 use crate::registry::Registry;
@@ -106,6 +108,63 @@ impl JsonRpcResponse {
             }),
         }
     }
+}
+
+/// Scrubber für das Call-Log. Baseline-Allowlist plus die pseudonymen
+/// Audit-Identitäten (Mandant, Session) aus dem geprüften Claim. Roh-Tool-
+/// Argumente und Response-Inhalte stehen nie auf der Allowlist (ADR-001).
+fn call_log_scrubber() -> SpanScrubber {
+    SpanScrubber::new(
+        AttributeAllowlist::baseline()
+            .allow("auth.tenant")
+            .allow("auth.session"),
+    )
+}
+
+/// Baut die Audit-Logzeile eines `tools/call` als einzeiliges JSON.
+///
+/// ELI und Stichtag stammen aus der Provenance der Antwort (der verifizierten
+/// Quelle), nie aus den rohen Tool-Argumenten. Jede Zeile passiert den
+/// PII-Scrubber, damit künftige Attribute fail-closed redacted bleiben.
+fn call_log_line(claims: &VerifiedClaims, tool: &str, result: &Value, duration_ms: u64) -> String {
+    let prov = |key: &str| -> String {
+        result
+            .get("provenance")
+            .and_then(|p| p.get(key))
+            .and_then(Value::as_str)
+            .unwrap_or("-")
+            .to_string()
+    };
+    let outcome = if result.get("error").is_some() {
+        "error"
+    } else {
+        "ok"
+    };
+    let span = call_log_scrubber().scrub(
+        "tools/call",
+        [
+            ("tool.name".to_string(), tool.to_string()),
+            ("auth.role".to_string(), format!("{:?}", claims.role())),
+            (
+                "auth.tenant".to_string(),
+                claims.tenant().as_str().to_string(),
+            ),
+            (
+                "auth.session".to_string(),
+                claims.session().as_str().to_string(),
+            ),
+            ("provenance.eli".to_string(), prov("eli")),
+            ("provenance.valid_as_of".to_string(), prov("valid_as_of")),
+            ("outcome".to_string(), outcome.to_string()),
+            ("span.duration_ms".to_string(), duration_ms.to_string()),
+        ],
+    );
+    let mut obj = serde_json::Map::new();
+    obj.insert("event".into(), Value::String(span.name().to_string()));
+    for (key, value) in span.attributes() {
+        obj.insert(key.clone(), Value::String(value.clone()));
+    }
+    Value::Object(obj).to_string()
 }
 
 /// Der zustandslose MCP-Dienst. Bündelt Registry, Auth, Quota und Temporal.
@@ -215,7 +274,19 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                 let ctx = ToolContext { claims, stamp };
                 // Dispatch liefert immer valides JSON (Erfolg mit Provenance oder
                 // graceful { error, hint }). Es wird unverändert als result gereicht.
+                let started = Instant::now();
                 let result = self.registry.dispatch(&ctx, name, args).await;
+                // Audit-Logzeile pro Call. Damit ist server-seitig belegbar,
+                // welcher Mandant wann welche Norm in welcher Fassung gefetcht hat.
+                println!(
+                    "{}",
+                    call_log_line(
+                        &ctx.claims,
+                        name,
+                        &result,
+                        started.elapsed().as_millis() as u64,
+                    )
+                );
                 JsonRpcResponse::ok(req.id, result)
             }
 
@@ -456,6 +527,40 @@ mod tests {
         assert_eq!(result["data"]["text"], "Art. 1 BV");
         assert_eq!(result["provenance"]["eli"], "eli/cc/1999/404");
         assert_eq!(resp.id, json!(7));
+    }
+
+    #[test]
+    fn call_log_line_carries_identity_and_provenance() {
+        let claims = auth().verify("token-a").unwrap();
+        let result = json!({
+            "data": { "text": "Art. 1 BV" },
+            "provenance": { "eli": "eli/cc/1999/404", "valid_as_of": "2020-01-01" }
+        });
+        let line = call_log_line(&claims, "read_article", &result, 42);
+        let parsed: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(parsed["event"], "tools/call");
+        assert_eq!(parsed["tool.name"], "read_article");
+        assert_eq!(parsed["auth.tenant"], "kanzlei-a");
+        assert_eq!(parsed["auth.session"], "sess-1");
+        assert_eq!(parsed["auth.role"], "Reader");
+        assert_eq!(parsed["provenance.eli"], "eli/cc/1999/404");
+        assert_eq!(parsed["provenance.valid_as_of"], "2020-01-01");
+        assert_eq!(parsed["outcome"], "ok");
+        assert_eq!(parsed["span.duration_ms"], "42");
+        // ADR-001. Response-Inhalte erscheinen nie in der Logzeile.
+        assert!(!line.contains("Art. 1 BV"));
+    }
+
+    #[test]
+    fn call_log_line_marks_graceful_errors() {
+        let claims = auth().verify("token-a").unwrap();
+        let result = json!({ "error": "unknown eli", "hint": "ELI pruefen" });
+        let line = call_log_line(&claims, "read_article", &result, 5);
+        let parsed: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(parsed["outcome"], "error");
+        assert_eq!(parsed["provenance.eli"], "-");
+        // Fehlertext (potenziell mit Nutzereingaben) bleibt draussen.
+        assert!(!line.contains("unknown eli"));
     }
 
     #[tokio::test]
