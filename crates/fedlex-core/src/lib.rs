@@ -20,7 +20,8 @@ pub mod temporal;
 
 pub use eid::normalize_eid;
 pub use eli::{Ecli, Eli, IdError};
-pub use provenance::Provenance;
+pub use provenance::{Provenance, ProvenanceKind};
+
 pub use response::Response;
 pub use sensitive::Sensitive;
 pub use temporal::{TransactionTime, ValidAsOf};

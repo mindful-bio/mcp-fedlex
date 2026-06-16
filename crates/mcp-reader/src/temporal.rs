@@ -33,6 +33,13 @@ impl QueryStamp {
     pub fn into_provenance(self, eli: Eli) -> Provenance {
         Provenance::new(eli, self.valid_as_of, self.transaction_time)
     }
+
+    /// Leitet aus diesem Stempel und einem Treffer-ELI eine **Hinweis**-Herkunft
+    /// ab (Discovery, ADR-006). Sie sagt „zum Stichtag X als Kandidat gefunden",
+    /// nicht „Norm Y besagt Z" — der Konsument darf sie nicht als Beleg zählen.
+    pub fn into_hint_provenance(self, eli: Eli) -> Provenance {
+        Provenance::hint(eli, self.valid_as_of, self.transaction_time)
+    }
 }
 
 /// Stempelt Anfragen mit dem juristischen Stichtag.
@@ -99,5 +106,25 @@ mod tests {
         let prov = stamp.into_provenance(Eli::new("eli/cc/1999/404").unwrap());
         assert_eq!(prov.eli.as_str(), "eli/cc/1999/404");
         assert_eq!(prov.valid_as_of.to_string(), "2020-01-01");
+    }
+
+    // ADR-006: derselbe Stempel erzeugt für Discovery eine Hinweis-Herkunft,
+    // die sich strukturell von der Norm-Herkunft unterscheidet.
+    #[test]
+    fn stamp_carries_into_hint_provenance() {
+        let r = TemporalResolver::new(date!(2024 - 01 - 01));
+        let stamp = r.stamp_at(
+            Some(date!(2020 - 01 - 01)),
+            TransactionTime::new(datetime!(2026-06-01 09:00 UTC)),
+        );
+        let eli = Eli::new("eli/cc/2017/762").unwrap();
+        let hint = stamp.into_hint_provenance(eli.clone());
+        assert_eq!(hint.eli.as_str(), "eli/cc/2017/762");
+        assert!(
+            !hint.is_norm(),
+            "Discovery-Treffer ist ein Hinweis, kein Beleg"
+        );
+        // Norm- und Hinweis-Herkunft aus demselben Stempel sind nicht gleich.
+        assert_ne!(stamp.into_provenance(eli), hint);
     }
 }

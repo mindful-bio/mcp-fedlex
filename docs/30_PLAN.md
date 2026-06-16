@@ -140,9 +140,32 @@ Lückenloses Tracing mit Compliance-Gate.
 - [ ] AKN/Jolux-Schema-Versions-Handling (Backlog B-2).
 - [ ] **Test-Nachweis.** Negativtest, dass ein nicht-authentifizierter In-Cluster-Client Redis/Oxigraph/semantic-fedlex nicht erreicht; Restore-Test, der den Graph aus Backup wiederherstellt. Ehrliche Einordnung. Nur der Health-Endpunkt-Teil hat einen cargo-test-Beweis, der Rest ist Infra.
 
+## M11 — Discovery-Tools & Hinweis-Provenance (`mcp-reader`, `fedlex-core`)
+
+Schliesst die Discovery-Lücke der MCP-Oberfläche (siehe `40_FINDINGS.md`, ADR-006). Die
+jolux-Primitive existieren und sind live-getestet; hier entsteht nur die dünne Tool-Projektion
+plus die strukturelle Hinweis/Beleg-Trennung.
+
+- [ ] `Provenance::Hint` (bzw. `kind`-Feld) in `fedlex-core`, im Wire-Format als `"hint"` vs.
+      `"norm"` unterscheidbar; `QueryStamp` kann eine Hinweis-Provenance je Treffer-ELI bilden.
+- [ ] `ToolPool::Discovery` in `mcp-reader`, RBAC. `Reader` ohne, `Navigator`/`Validator` mit
+      Discovery (ADR-006).
+- [ ] Drei `McpTool`-Wrapper über die Primitive. `search_law` (Titel/Stichwort),
+      `resolve_sr_number` (SR-Nummer), `find_related_topic` (ELI → thematisch verwandt). Jeder
+      Treffer trägt seine eigene Hinweis-Provenance (ADR-004 „Listen/Aggregate").
+- [ ] `register_discovery_tools` analog `register_navigation_tools`, verdrahtet im Reader-Binary
+      gegen `HttpSparqlClient::fedlex()`.
+- [ ] Pool-abhängiges Quota-Cost-Gewicht. `Discovery` schwerer als `LocalNavigation`,
+      claim-gebunden (ADR-002/ADR-006 F-5).
+- [ ] **Test-Nachweis.** `tools/list` listet Discovery rollenabhängig (Reader ohne); Dispatch-Test
+      zeigt Hinweis-Provenance im Wire-Format (`kind: "hint"`); Test der Discovery→Beleg-Kette
+      (Treffer-ELI ist anschliessend von `get_metadata`/`read_article` auflösbar); Quota-Test, dass
+      ein Discovery-Call mehr Tokens bucht als ein Navigationscall.
+
 ---
 
 ## Fortschritt
+
 
 | Meilenstein | Status | Beweis |
 | --- | --- | --- |
@@ -160,5 +183,7 @@ Lückenloses Tracing mit Compliance-Gate.
 | Lücke B Oxigraph | erledigt | 6 Tests grün (Feature oxigraph-store), eingebetteter In-Process-Oxigraph. Bi-temporale Punkt-in-Zeit-Aufloesung, Korrektur per Transaktionszeit ohne Historienverlust, Append-only-Zaehler, SPARQL-Injection-Schutz |
 | M10 Härtung | teilweise | Health-Endpunkte (5 Tests), Server-Komposition mit echtem Socket (3 Tests) und Cache-Warmup gegen Stampede (5 Tests) erledigt. K8s-Manifeste in `k3-infra` (Reader-Deployment mit drei Proben, Redis, Default-Deny-NetworkPolicy, Argo-Application), client-validiert. mTLS, durabler Korpus mit Backup/Restore und Schema-Versionierung bleiben Infra ohne cargo-test-Beweis |
 | Schreib- trifft Lesepfad | erledigt | CorpusSink fehlbar gemacht (Store-Fehler ueber Retry/DLQ statt stiller Verlust). OxigraphCorpusSink-Adapter (Feature oxigraph-store) schreibt in denselben bi-temporalen Korpus, aus dem der Reader punkt-in-zeit aufloest. 1 neuer Writer-Fehlerpfad-Test, 4 Adapter-Tests gruen |
+| M11 Discovery & Hinweis-Provenance | offen | Plan festgehalten (ADR-006, `40_FINDINGS.md`). Schliesst die Discovery-Lücke der MCP-Oberfläche (search_law/resolve_sr_number/find_related_topic + Hinweis-Provenance + Discovery-Pool). Noch kein Code |
 
 Status je Zeile wird auf `erledigt` gesetzt, sobald der zugehörige Test-Nachweis grün ist.
+

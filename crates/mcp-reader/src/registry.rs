@@ -9,7 +9,8 @@
 //!    roher Crash ans LLM.
 
 use crate::auth::Role;
-use crate::tool::{role_allows, McpTool, ToolContext};
+use crate::tool::{role_allows, McpTool, ToolContext, ToolPool};
+
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -29,6 +30,13 @@ impl Registry {
     /// Registriert ein Tool. Ein gleichnamiges Tool wird überschrieben.
     pub fn register(&mut self, tool: Arc<dyn McpTool>) {
         self.tools.insert(tool.name().to_string(), tool);
+    }
+
+    /// Der RBAC-Pool eines registrierten Tools, falls bekannt. Wird vom
+    /// Transport gebraucht, um das pool-abhängige Quota-Gewicht (ADR-006)
+    /// VOR dem Dispatch zu bestimmen.
+    pub fn pool_of(&self, name: &str) -> Option<ToolPool> {
+        self.tools.get(name).map(|t| t.pool())
     }
 
     /// `tools/list` für eine Rolle. Liefert nur Schemas der erlaubten Pools.

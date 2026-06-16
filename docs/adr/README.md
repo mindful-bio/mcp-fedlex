@@ -12,6 +12,10 @@ Kontext, Entscheidung und Akzeptanzkriterien für das spätere Coding fest.
 | [ADR-003](ADR-003-index-consistency.md) | Index-Konsistenz (Embedding-Outbox) & Ingestion-Resilienz (DLQ) | Writer / Ingestion |
 | [ADR-004](ADR-004-response-provenance.md) | Response-Provenance-Envelope | Reader / Navigator, syllogismus-fedlex |
 | [ADR-005](ADR-005-service-to-service-auth.md) | Service-to-Service-Authentifizierung (mTLS / Zero-Trust intern) | Reader & Writer, semantic-fedlex |
+| [ADR-006](ADR-006-discovery-tools-and-hint-provenance.md) | Discovery-Tools & Hinweis-Provenance | Reader / Registry, RBAC, Quota, ansV |
+| [ADR-007](ADR-007-jolux-metadata-tools-pool-and-quota.md) | JOLux-Metadaten-Tools: RBAC-Pool & Quota-Gewicht | Reader / Registry, RBAC, Quota, ansV |
+
+
 
 ## Backlog (Härtung, noch nicht als ADR ausgearbeitet)
 

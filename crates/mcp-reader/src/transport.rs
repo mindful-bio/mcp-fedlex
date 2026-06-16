@@ -226,8 +226,30 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
             ),
 
             "tools/call" => {
-                // Quota vor jeder Arbeit. Schlüssel nur aus dem Claim (ADR-002).
-                let decision = self.limiter.check(&claims, now_ms).await;
+                // Tool-Namen ZUERST bestimmen, damit das Quota-Gewicht
+                // pool-abhängig gebucht werden kann (ADR-006). Der Name kommt aus
+                // den Parametern, das Gewicht jedoch NICHT — es wird serverseitig
+                // aus dem registrierten Pool abgeleitet (claim-/pool-gebunden,
+                // von keinem LLM-Parameter senkbar, ADR-002).
+                let Some(name) = req.params.get("name").and_then(Value::as_str) else {
+                    return JsonRpcResponse::err(
+                        req.id,
+                        codes::INVALID_PARAMS,
+                        "missing tool name",
+                    );
+                };
+
+                // Live-Discovery wiegt schwerer als lokale Navigation. Unbekannte
+                // Tools wiegen 1 (der Dispatch lehnt sie ohnehin graceful ab).
+                let cost = self
+                    .registry
+                    .pool_of(name)
+                    .map(|pool| pool.cost_weight())
+                    .unwrap_or(1);
+
+                // Quota vor jeder Arbeit. Schlüssel nur aus dem Claim (ADR-002),
+                // Gewicht aus dem Pool (ADR-006).
+                let decision = self.limiter.check_weighted(&claims, cost, now_ms).await;
                 if !decision.allowed {
                     // Lenkende Antwort statt Transport-Fehler, damit das LLM
                     // sich selbst drosseln kann.
@@ -242,13 +264,6 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                     );
                 }
 
-                let Some(name) = req.params.get("name").and_then(Value::as_str) else {
-                    return JsonRpcResponse::err(
-                        req.id,
-                        codes::INVALID_PARAMS,
-                        "missing tool name",
-                    );
-                };
                 let args = req
                     .params
                     .get("arguments")
@@ -414,6 +429,91 @@ mod tests {
                     retry_after_ms: 0,
                 })
             }
+        }
+    }
+
+    /// Quota-Backend, das das zuletzt angeforderte Cost-Gewicht festhält. Damit
+    /// lässt sich belegen, dass der Transport pool-abhängig gewichtet abbucht
+    /// (ADR-006), ohne ein echtes Token-Bucket zu brauchen.
+    struct CostSpyBackend {
+        last_cost: std::sync::atomic::AtomicU32,
+    }
+
+    impl CostSpyBackend {
+        fn new() -> Self {
+            Self {
+                last_cost: std::sync::atomic::AtomicU32::new(0),
+            }
+        }
+    }
+
+    impl QuotaBackend for CostSpyBackend {
+        async fn try_acquire(
+            &self,
+            _key: &str,
+            _params: BucketParams,
+            cost: u32,
+            _now_ms: u64,
+        ) -> Result<Acquisition, QuotaError> {
+            self.last_cost.store(cost, Ordering::SeqCst);
+            Ok(Acquisition {
+                allowed: true,
+                remaining: 99,
+                retry_after_ms: 0,
+            })
+        }
+    }
+
+    /// Ein Discovery-Tool (Pool::Discovery) für den Quota-Gewichtstest.
+    struct FakeDiscovery;
+
+    #[async_trait]
+    impl McpTool for FakeDiscovery {
+        fn name(&self) -> &str {
+            "search_law"
+        }
+        fn pool(&self) -> ToolPool {
+            ToolPool::Discovery
+        }
+        fn schema(&self) -> Value {
+            json!({ "type": "object" })
+        }
+        async fn execute(
+            &self,
+            ctx: &ToolContext,
+            _args: Value,
+        ) -> Result<Response<Value>, ToolError> {
+            let eli = Eli::new("eli/cc").map_err(|e| ToolError::InvalidArguments(e.to_string()))?;
+            // Discovery liefert Hinweis-Provenance, kein Beleg (ADR-006).
+            let prov = ctx.stamp.into_hint_provenance(eli);
+            Ok(Response::new(json!({ "hits": [] }), prov))
+        }
+    }
+
+    /// Ein JOLux-Metadaten-Tool (Pool::JoluxMetadata) für den Quota-Gewichtstest.
+    struct FakeMetadata;
+
+    #[async_trait]
+    impl McpTool for FakeMetadata {
+        fn name(&self) -> &str {
+            "check_in_force"
+        }
+        fn pool(&self) -> ToolPool {
+            ToolPool::JoluxMetadata
+        }
+        fn schema(&self) -> Value {
+            json!({ "type": "object" })
+        }
+        async fn execute(
+            &self,
+            ctx: &ToolContext,
+            _args: Value,
+        ) -> Result<Response<Value>, ToolError> {
+            let eli = Eli::new("eli/cc/2017/762")
+                .map_err(|e| ToolError::InvalidArguments(e.to_string()))?;
+            // Metadaten-Tools belegen einen bekannten Erlass: Norm-Provenance (ADR-007).
+            let prov = ctx.stamp.into_provenance(eli);
+            Ok(Response::new(json!({ "in_force": true }), prov))
         }
     }
 
@@ -594,6 +694,110 @@ mod tests {
             )
             .await;
         assert_eq!(resp.error.unwrap().code, codes::INVALID_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn discovery_call_books_weighted_quota_navigation_does_not() {
+        // Registry mit einem Discovery- und einem Navigations-Tool. Beide werden
+        // mit demselben gewichts-protokollierenden Backend aufgerufen.
+        let mut registry = Registry::new();
+        registry.register(Arc::new(FakeDiscovery));
+        registry.register(Arc::new(ReadArticle));
+        let backend = CostSpyBackend::new();
+        let limiter = RateLimiter::with_policy(backend, QuotaPolicy::default());
+        let temporal = TemporalResolver::new(time::macros::date!(2024 - 01 - 01));
+        // Navigator-Rolle, damit Discovery sichtbar/aufrufbar ist (ADR-006).
+        let nav_auth = StaticAuthResolver::new().with_credential(
+            "token-nav",
+            ClaimRecord {
+                tenant: "kanzlei-a".into(),
+                session: "sess-1".into(),
+                role: Role::Navigator,
+            },
+        );
+        let svc = McpService::new(registry, nav_auth, limiter, temporal);
+
+        // Navigation bucht das Grundgewicht 1.
+        svc.handle(
+            Some("token-nav"),
+            req(1, "tools/call", json!({ "name": "read_article" })),
+            0,
+        )
+        .await;
+        assert_eq!(
+            svc.limiter.backend().last_cost.load(Ordering::SeqCst),
+            1,
+            "LocalNavigation muss Gewicht 1 buchen"
+        );
+
+        // Discovery bucht das höhere Pool-Gewicht (ADR-006).
+        svc.handle(
+            Some("token-nav"),
+            req(2, "tools/call", json!({ "name": "search_law" })),
+            0,
+        )
+        .await;
+        assert_eq!(
+            svc.limiter.backend().last_cost.load(Ordering::SeqCst),
+            ToolPool::Discovery.cost_weight(),
+            "Discovery muss das schwerere Pool-Gewicht buchen"
+        );
+        assert!(
+            ToolPool::Discovery.cost_weight() > 1,
+            "Discovery muss schwerer wiegen als Navigation"
+        );
+    }
+
+    #[tokio::test]
+    async fn jolux_metadata_call_books_weighted_quota_like_discovery() {
+        // ADR-007: ein Metadaten-Call bucht dasselbe schwerere Live-Gewicht wie
+        // Discovery, lokale Navigation bleibt bei 1.
+        let mut registry = Registry::new();
+        registry.register(Arc::new(FakeMetadata));
+        registry.register(Arc::new(ReadArticle));
+        let backend = CostSpyBackend::new();
+        let limiter = RateLimiter::with_policy(backend, QuotaPolicy::default());
+        let temporal = TemporalResolver::new(time::macros::date!(2024 - 01 - 01));
+        let nav_auth = StaticAuthResolver::new().with_credential(
+            "token-nav",
+            ClaimRecord {
+                tenant: "kanzlei-a".into(),
+                session: "sess-1".into(),
+                role: Role::Navigator,
+            },
+        );
+        let svc = McpService::new(registry, nav_auth, limiter, temporal);
+
+        // Lokale Navigation: Grundgewicht 1.
+        svc.handle(
+            Some("token-nav"),
+            req(1, "tools/call", json!({ "name": "read_article" })),
+            0,
+        )
+        .await;
+        assert_eq!(
+            svc.limiter.backend().last_cost.load(Ordering::SeqCst),
+            1,
+            "LocalNavigation muss Gewicht 1 buchen"
+        );
+
+        // JoluxMetadata: schwereres Live-Gewicht, identisch zu Discovery.
+        svc.handle(
+            Some("token-nav"),
+            req(2, "tools/call", json!({ "name": "check_in_force" })),
+            0,
+        )
+        .await;
+        assert_eq!(
+            svc.limiter.backend().last_cost.load(Ordering::SeqCst),
+            ToolPool::JoluxMetadata.cost_weight(),
+            "JoluxMetadata muss das schwerere Pool-Gewicht buchen"
+        );
+        assert_eq!(
+            ToolPool::JoluxMetadata.cost_weight(),
+            ToolPool::Discovery.cost_weight(),
+            "JoluxMetadata muss exakt das Discovery-Gewicht buchen"
+        );
     }
 
     #[tokio::test]

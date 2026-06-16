@@ -18,12 +18,16 @@ use std::sync::Arc;
 use fedlex_bridge::{AknFetcher, HttpSparqlClient, HttpXmlSource};
 use mcp_reader::app::{app, serve};
 use mcp_reader::auth::{AuthResolver, JwksAuthResolver, JwtAuthResolver, StaticAuthResolver};
+use mcp_reader::discovery::register_discovery_tools;
 use mcp_reader::health::HealthState;
+use mcp_reader::metadata::register_metadata_tools;
+
 use mcp_reader::probes::{QuotaBackendProbe, SparqlProbe};
 use mcp_reader::quota::{QuotaPolicy, RateLimiter, RedisQuotaBackend};
 use mcp_reader::registry::Registry;
 use mcp_reader::temporal::TemporalResolver;
 use mcp_reader::tools::register_navigation_tools;
+
 use mcp_reader::transport::McpService;
 use tokio::net::TcpListener;
 
@@ -54,7 +58,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut registry = Registry::new();
     register_navigation_tools(&mut registry, fetcher);
 
+    // Discovery-Tools (ADR-006). Eigener SPARQL-Client für die Live-Auflösung
+    // gegen Fedlex (Suche/SR-Auflösung/Themen). Sie liefern Kandidaten-ELIs mit
+    // Hinweis-Provenance und sind nur Navigator/Validator sichtbar.
+    register_discovery_tools(&mut registry, Arc::new(HttpSparqlClient::fedlex()));
+
+    // JOLux-Metadaten-Tools (ADR-007, Tranche A: Temporal). Eigener SPARQL-
+    // Client für die Live-Auflösung gegen Fedlex. Sie belegen Eigenschaften
+    // eines bekannten Erlasses (Norm-Provenance) und sind, wie Discovery, nur
+    // Navigator/Validator sichtbar und im Quota gleich gewichtet.
+    register_metadata_tools(&mut registry, Arc::new(HttpSparqlClient::fedlex()));
+
     let today = time::OffsetDateTime::now_utc().date();
+
     let temporal = TemporalResolver::new(today);
     let service = Arc::new(McpService::new(registry, auth, limiter, temporal));
 

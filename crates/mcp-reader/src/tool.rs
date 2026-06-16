@@ -22,24 +22,60 @@ pub enum ToolPool {
     LocalNavigation,
     /// Föderierte URI-Auflösung über Kantone/Gemeinden/Ausland.
     LodFederation,
+    /// Live-Discovery gegen Fedlex (Suche/SR-Auflösung/Themen, ADR-006).
+    ///
+    /// Eigener Pool, getrennt von [`Self::LodFederation`]: Föderation löst
+    /// *bekannte* URIs auf, Discovery *findet* erst einen Bund-Erlass. Discovery-
+    /// Treffer tragen Hinweis-Provenance (kein Beleg) und gehen live an den
+    /// öffentlichen Endpoint — daher wiegt der Pool im Quota schwerer.
+    Discovery,
+    /// Live-JOLux-Metadaten gegen Fedlex (Temporal/Beziehungen/Einordnung, ADR-007).
+    ///
+    /// Eigener Pool, getrennt von [`Self::Discovery`] und [`Self::LocalNavigation`]:
+    /// Discovery *findet* einen Erlass (Hinweis), diese Tools *belegen* eine
+    /// Eigenschaft eines **bekannten** Erlasses (Norm-Provenance) und gehen — wie
+    /// Discovery, anders als der Cache-gestützte [`Self::LocalNavigation`] — live an
+    /// den öffentlichen Endpoint. Daher dasselbe schwerere Quota-Gewicht.
+    JoluxMetadata,
     /// Schema-/Konsistenz-Validierung und XML-Diffing.
     Validation,
+
     /// Stateful Workspace-Tools (Scratchpad).
     Workspace,
+}
+
+impl ToolPool {
+    /// Quota-Cost-Gewicht des Pools (ADR-006). Live-Discovery wiegt schwerer
+    /// als lokale Navigation, um den öffentlichen Fedlex-Endpoint vor
+    /// LLM-Schleifen zu schützen. Claim-gebunden, von keinem LLM-Parameter
+    /// senkbar (ADR-002).
+    pub fn cost_weight(self) -> u32 {
+        match self {
+            // Live-Last gegen den öffentlichen Fedlex-Endpoint (ADR-006/ADR-007).
+            ToolPool::Discovery | ToolPool::JoluxMetadata => 5,
+            _ => 1,
+        }
+    }
 }
 
 /// Welche Pools eine Rolle sehen darf (RBAC, Least-Privilege).
 pub fn pools_for(role: Role) -> &'static [ToolPool] {
     match role {
+        // Reader bleibt eng: nur lokaler Cache, KEIN Discovery (ADR-006).
         Role::Reader => &[ToolPool::LocalNavigation],
+        // Navigator ist die Rolle, mit der ansV läuft: Discovery erlaubt.
         Role::Navigator => &[
             ToolPool::LocalNavigation,
             ToolPool::LodFederation,
+            ToolPool::Discovery,
+            ToolPool::JoluxMetadata,
             ToolPool::Workspace,
         ],
         Role::Validator => &[
             ToolPool::LocalNavigation,
             ToolPool::LodFederation,
+            ToolPool::Discovery,
+            ToolPool::JoluxMetadata,
             ToolPool::Workspace,
             ToolPool::Validation,
         ],
@@ -110,4 +146,34 @@ pub trait McpTool: Send + Sync {
 
     /// Führt das Tool aus. Erfolg trägt zwingend Provenance.
     async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ADR-007: die Live-SPARQL-Pools wiegen im Quota schwerer als lokale
+    // Navigation — und JoluxMetadata trägt exakt das Discovery-Gewicht
+    // (gleiches Lastprofil gegen den öffentlichen Fedlex-Endpunkt).
+    #[test]
+    fn jolux_metadata_costs_same_as_discovery_and_more_than_local() {
+        assert_eq!(
+            ToolPool::JoluxMetadata.cost_weight(),
+            ToolPool::Discovery.cost_weight(),
+            "JoluxMetadata muss dasselbe Live-Gewicht wie Discovery tragen"
+        );
+        assert!(
+            ToolPool::JoluxMetadata.cost_weight() > ToolPool::LocalNavigation.cost_weight(),
+            "Live-SPARQL muss schwerer wiegen als lokale Navigation"
+        );
+    }
+
+    // ADR-007: Sichtbarkeit folgt Least-Privilege — Reader bleibt eng auf den
+    // lokalen Cache, Navigator/Validator dürfen die Metadaten-Tools sehen.
+    #[test]
+    fn jolux_metadata_visibility_follows_least_privilege() {
+        assert!(!role_allows(Role::Reader, ToolPool::JoluxMetadata));
+        assert!(role_allows(Role::Navigator, ToolPool::JoluxMetadata));
+        assert!(role_allows(Role::Validator, ToolPool::JoluxMetadata));
+    }
 }

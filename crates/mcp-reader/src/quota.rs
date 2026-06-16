@@ -202,13 +202,39 @@ impl<B: QuotaBackend> RateLimiter<B> {
         }
     }
 
+    /// Test-Zugriff auf das primäre Backend, um das gebuchte Cost-Gewicht
+    /// (ADR-006) gegen ein Spy-Backend zu prüfen.
+    #[cfg(test)]
+    pub fn backend(&self) -> &B {
+        &self.primary
+    }
+
     /// Prüft einen Tool-Aufruf gegen das Quota des Claims. Der Schlüssel wird
     /// allein aus dem Claim gebildet, nicht aus dem Tool-Namen oder -Argumenten.
+    ///
+    /// Bucht ein Token (`cost = 1`). Für pool-abhängiges Gewicht (ADR-006)
+    /// siehe [`Self::check_weighted`].
     pub async fn check(&self, claims: &VerifiedClaims, now_ms: u64) -> Decision {
+        self.check_weighted(claims, 1, now_ms).await
+    }
+
+    /// Wie [`Self::check`], bucht aber `cost` Tokens statt einem (ADR-006).
+    ///
+    /// Das Gewicht ist **claim-/pool-gebunden** und stammt aus
+    /// [`ToolPool::cost_weight`](crate::tool::ToolPool::cost_weight) — niemals
+    /// aus einem LLM-Parameter (ADR-002). Live-Discovery wiegt damit schwerer
+    /// als lokale Navigation und schützt den öffentlichen Fedlex-Endpoint.
+    pub async fn check_weighted(
+        &self,
+        claims: &VerifiedClaims,
+        cost: u32,
+        now_ms: u64,
+    ) -> Decision {
         let key = quota_key(claims);
         let params = self.policy.params_for(claims.role());
+        let cost = cost.max(1);
 
-        match self.primary.try_acquire(&key, params, 1, now_ms).await {
+        match self.primary.try_acquire(&key, params, cost, now_ms).await {
             Ok(a) => Decision {
                 allowed: a.allowed,
                 remaining: a.remaining,
@@ -217,9 +243,9 @@ impl<B: QuotaBackend> RateLimiter<B> {
             },
             Err(_) => {
                 // Fail-closed: konservatives pod-lokales Limit statt Freischaltung.
-                let a = self
-                    .fallback
-                    .try_acquire(&key, self.policy.fallback_params(), 1, now_ms);
+                let a =
+                    self.fallback
+                        .try_acquire(&key, self.policy.fallback_params(), cost, now_ms);
                 Decision {
                     allowed: a.allowed,
                     remaining: a.remaining,

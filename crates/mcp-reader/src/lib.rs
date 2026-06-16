@@ -21,8 +21,12 @@
 pub mod app;
 pub mod auth;
 pub mod circuit_breaker;
+pub mod discovery;
 pub mod health;
+
 pub mod lod_gateway;
+pub mod metadata;
+
 pub mod probes;
 pub mod quota;
 pub mod registry;
@@ -41,10 +45,13 @@ pub use auth::{
     StaticAuthResolver, VerifiedClaims,
 };
 pub use circuit_breaker::{BreakerConfig, BreakerError, BreakerState, CircuitBreaker};
+pub use discovery::register_discovery_tools;
 pub use health::{health_router, HealthState, ReadinessProbe};
 pub use lod_gateway::{
     ConnectorError, EliResolver, ExternalConnector, Origin, ResolveError, Resolved,
 };
+pub use metadata::register_metadata_tools;
+
 pub use probes::{QuotaBackendProbe, SparqlProbe};
 pub use quota::{Decision, QuotaBackend, QuotaError, QuotaPolicy, RateLimiter, RedisQuotaBackend};
 pub use registry::Registry;
@@ -55,6 +62,7 @@ pub use semantic_client::{
 pub use temporal::{QueryStamp, TemporalResolver};
 pub use tool::{pools_for, role_allows, McpTool, ToolContext, ToolError, ToolPool};
 pub use tools::register_navigation_tools;
+
 pub use transport::{router, JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpService};
 pub use warmup::{WarmupCache, WarmupReport};
 pub use xml_engine::{diff_to_markdown, paginate, Article, Document, L1Cache, Page};
