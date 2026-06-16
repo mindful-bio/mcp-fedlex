@@ -93,9 +93,14 @@ bereits pool-granular.
       sind in `tools/list` rollenabhängig sichtbar und über `tools/call` aufrufbar; je ein
       Mock-Dispatch-Test reicht das Primitiv durch.
       (`metadata.rs::tests`, in `main.rs` via `register_metadata_tools` verdrahtet)
-- [ ] **Tranche B/C projiziert.** Beziehungen (`get_impacts`/`get_outgoing_impacts`/
-      `get_article_history`, `get_citations`) und Einordnung (`get_taxonomy`,
-      `get_subdivisions`/`list_annexes`) noch offen.
+- [x] **Tranche B projiziert.** Beziehungen (`get_impacts`/`get_outgoing_impacts`/
+      `get_article_history`, `get_citations`) sind in `tools/list` rollenabhängig sichtbar und
+      über `tools/call` aufrufbar; Mock-Dispatch-Tests reichen die Primitive durch und prüfen
+      Norm-Provenance, eID-Normalisierung (J18.2), `(from,to)`-Dedup (J7.4) und `direction`.
+      (`metadata.rs::tests`, in `main.rs` via `register_metadata_tools` verdrahtet)
+- [ ] **Tranche C projiziert.** Einordnung (`get_taxonomy`, `get_subdivisions`/`list_annexes`)
+      noch offen.
+
 - [ ] **Vollständigkeits-Matrix.** Jedes projizierte Primitiv ist in der Matrix aus
       [50_ROADMAP_TO_PERFECT.md](../50_ROADMAP_TO_PERFECT.md) (Schritt 3) als *projiziert*
       verbucht.
@@ -128,9 +133,11 @@ bereits pool-granular.
 ---
 
 ## Status der Umsetzung
-**Tranche A (Temporal) umgesetzt** (`crates/mcp-reader/src/metadata.rs`): `check_in_force`,
-`list_versions`, `resolve_consolidation_at` als `ToolPool::JoluxMetadata`, via
-`register_metadata_tools` in `main.rs` verdrahtet, alle obigen Akzeptanzkriterien für Tranche A
-testgrün (`cargo test -p mcp-reader`, 107 Tests). **Tranche B (Beziehungen) und C (Einordnung)
-sind noch offen** und in Reihenfolge A→B→C nach belegtem ansV-Bedarf zu projizieren.
+**Tranche A (Temporal) und B (Beziehungen) umgesetzt** (`crates/mcp-reader/src/metadata.rs`):
+Tranche A — `check_in_force`, `list_versions`, `resolve_consolidation_at`; Tranche B —
+`get_impacts`, `get_outgoing_impacts`, `get_article_history`, `get_citations`. Alle als
+`ToolPool::JoluxMetadata`, via `register_metadata_tools` in `main.rs` verdrahtet, alle obigen
+Akzeptanzkriterien für A und B testgrün (`cargo test -p mcp-reader`, 116 Tests). **Tranche C
+(Einordnung) ist noch offen** und in Reihenfolge nach belegtem ansV-Bedarf zu projizieren.
+
 

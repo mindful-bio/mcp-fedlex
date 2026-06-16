@@ -6,6 +6,14 @@
 //! gutachtenkritischen Fragen „Gilt die Norm zum Stichtag?", „Welche Fassungen
 //! gibt es?" und „Welche Fassung galt zum Stichtag (mit XML-URL)?".
 //!
+//! Tranche B — Beziehungen. Vier weitere Hüllen um den Impact-/Zitationsgraphen:
+//! `get_impacts` (JLX-IMP-01, „Welche Änderungen wirken auf diesen Erlass?"),
+//! `get_outgoing_impacts` (JLX-IMP-03, „Welche Gesetze ändert dieser
+//! Änderungserlass?"), `get_article_history` (JLX-IMP-02, „Wie wurde *dieser
+//! Artikel* geändert?") und `get_citations` (JLX-CIT-01, „Wer zitiert wen?",
+//! ein-/ausgehend/beide). Sie beantworten die gutachtenkritischen Fragen nach
+//! Wirkungsketten und Querverweisen zwischen Erlassen.
+//!
 //! ## Norm-Provenance statt Hinweis (ADR-007, im Gegensatz zu Discovery)
 //!
 //! Anders als die Discovery-Tools (ADR-006) lesen diese Tools eine Eigenschaft
@@ -26,8 +34,10 @@ use crate::tool::{McpTool, ToolContext, ToolError, ToolPool};
 use async_trait::async_trait;
 use fedlex_core::{Eli, Response};
 use fedlex_jolux::{
-    check_in_force, list_versions, resolve_consolidation_at, JoluxError, Language, SparqlClient,
+    check_in_force, get_article_history, get_citations, get_impacts, get_outgoing_impacts,
+    list_versions, resolve_consolidation_at, CitationDirection, JoluxError, Language, SparqlClient,
 };
+
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -46,7 +56,20 @@ where
     registry.register(Arc::new(ListVersions {
         client: Arc::clone(&client),
     }));
-    registry.register(Arc::new(ResolveConsolidationAt { client }));
+    registry.register(Arc::new(ResolveConsolidationAt {
+        client: Arc::clone(&client),
+    }));
+    // Tranche B — Beziehungen.
+    registry.register(Arc::new(GetImpacts {
+        client: Arc::clone(&client),
+    }));
+    registry.register(Arc::new(GetOutgoingImpacts {
+        client: Arc::clone(&client),
+    }));
+    registry.register(Arc::new(GetArticleHistory {
+        client: Arc::clone(&client),
+    }));
+    registry.register(Arc::new(GetCitations { client }));
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +95,33 @@ fn arg_lang(args: &Value) -> Result<Language, ToolError> {
         Some("rm") | Some("roh") => Ok(Language::Roh),
         Some(other) => Err(ToolError::InvalidArguments(format!(
             "`lang` muss de|fr|it|en|rm sein, nicht `{other}`"
+        ))),
+    }
+}
+
+/// Pflicht-Argument `eid` als nicht-leerer String lesen (Normalisierung
+/// übernimmt das Primitiv via `normalize_eid`).
+fn arg_eid(args: &Value) -> Result<String, ToolError> {
+    let raw = args
+        .get("eid")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::InvalidArguments("`eid` (string) fehlt".into()))?;
+    if raw.trim().is_empty() {
+        return Err(ToolError::InvalidArguments(
+            "`eid` darf nicht leer sein".into(),
+        ));
+    }
+    Ok(raw.to_string())
+}
+
+/// Optionales Argument `direction` für `get_citations` (Default `both`).
+fn arg_direction(args: &Value) -> Result<CitationDirection, ToolError> {
+    match args.get("direction").and_then(Value::as_str) {
+        None | Some("both") => Ok(CitationDirection::Both),
+        Some("outgoing") => Ok(CitationDirection::Outgoing),
+        Some("incoming") => Ok(CitationDirection::Incoming),
+        Some(other) => Err(ToolError::InvalidArguments(format!(
+            "`direction` muss outgoing|incoming|both sein, nicht `{other}`"
         ))),
     }
 }
@@ -203,6 +253,159 @@ where
             resolve_consolidation_at(self.client.as_ref(), &eli, ctx.stamp.valid_as_of(), lang)
                 .await
                 .map_err(map_jolux)?;
+        into_value_response(resp)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tranche B — Beziehungen (Impacts/Zitationen).
+// ---------------------------------------------------------------------------
+
+/// JLX-IMP-01. Welche Änderungen wirken auf diesen Erlass (eingehend)?
+struct GetImpacts<C> {
+    client: Arc<C>,
+}
+
+#[async_trait]
+impl<C> McpTool for GetImpacts<C>
+where
+    C: SparqlClient + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "get_impacts"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::JoluxMetadata
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Listet die Aenderungen (Impacts), die auf diesen Erlass und seine Artikel wirken (JLX-IMP-01). Caveat: seit 2023 stehen betroffene Artikel oft nur im Freitext-`comment` - eine leere Liste ist KEIN Beweis fuer 'nie geaendert'. Liefert einen BELEG (kind=norm) ueber den genannten Erlass.",
+            "properties": {
+                "eli": { "type": "string", "description": "ELI des Erlasses, z.B. eli/cc/2017/762" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let eli = arg_eli(&args)?;
+        let resp = get_impacts(self.client.as_ref(), &eli, ctx.stamp.valid_as_of())
+            .await
+            .map_err(map_jolux)?;
+        into_value_response(resp)
+    }
+}
+
+/// JLX-IMP-03. Welche Gesetze ändert dieser Änderungserlass (ausgehend)?
+struct GetOutgoingImpacts<C> {
+    client: Arc<C>,
+}
+
+#[async_trait]
+impl<C> McpTool for GetOutgoingImpacts<C>
+where
+    C: SparqlClient + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "get_outgoing_impacts"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::JoluxMetadata
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Listet die Gesetze, die dieser Aenderungserlass aendert (JLX-IMP-03, Richtung umgekehrt zu get_impacts). Nur OC/FGA-Erlasse sind Impact-Quellen - als `eli` also eli/oc/... uebergeben. Mantelerlasse buendeln viele Ziele. Liefert einen BELEG (kind=norm).",
+            "properties": {
+                "eli": { "type": "string", "description": "ELI des Aenderungserlasses (OC/FGA), z.B. eli/oc/2016/769" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let eli = arg_eli(&args)?;
+        let resp = get_outgoing_impacts(self.client.as_ref(), &eli, ctx.stamp.valid_as_of())
+            .await
+            .map_err(map_jolux)?;
+        into_value_response(resp)
+    }
+}
+
+/// JLX-IMP-02. Wie wurde *dieser Artikel* geändert?
+struct GetArticleHistory<C> {
+    client: Arc<C>,
+}
+
+#[async_trait]
+impl<C> McpTool for GetArticleHistory<C>
+where
+    C: SparqlClient + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "get_article_history"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::JoluxMetadata
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Listet die Aenderungen, die auf einen EINZELNEN Artikel eines Erlasses gewirkt haben (JLX-IMP-02). Der eID wird normalisiert (z.B. art_14_a -> art_14a). Caveat (wie get_impacts): seit 2023 oft nur im Freitext-`comment` des Gesamterlass-Impacts - leere Liste ist KEIN Beweis fuer 'nie geaendert'. Liefert einen BELEG (kind=norm).",
+            "properties": {
+                "eli": { "type": "string", "description": "ELI des Erlasses, z.B. eli/cc/2017/762" },
+                "eid": { "type": "string", "description": "eID des Artikels, z.B. art_14a oder art_2b/para_1" }
+            },
+            "required": ["eli", "eid"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let eli = arg_eli(&args)?;
+        let eid = arg_eid(&args)?;
+        let resp = get_article_history(self.client.as_ref(), &eli, &eid, ctx.stamp.valid_as_of())
+            .await
+            .map_err(map_jolux)?;
+        into_value_response(resp)
+    }
+}
+
+/// JLX-CIT-01. Formale Zitationen eines Erlasses (ein-/ausgehend/beide).
+struct GetCitations<C> {
+    client: Arc<C>,
+}
+
+#[async_trait]
+impl<C> McpTool for GetCitations<C>
+where
+    C: SparqlClient + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "get_citations"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::JoluxMetadata
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Listet formale Zitationen eines Erlasses (JLX-CIT-01). Richtung: outgoing (was dieser Erlass zitiert), incoming (wer ihn zitiert), both (Default). NUR Gesamttext-Granularitaet, nie Artikel-Ebene; fuer vollstaendige Zitationsnetze JOLux mit AKN-Inline-Refs mergen. Liefert einen BELEG (kind=norm).",
+            "properties": {
+                "eli": { "type": "string", "description": "ELI des Erlasses, z.B. eli/cc/2017/762" },
+                "direction": { "type": "string", "enum": ["outgoing", "incoming", "both"], "default": "both" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let eli = arg_eli(&args)?;
+        let direction = arg_direction(&args)?;
+        let resp = get_citations(
+            self.client.as_ref(),
+            &eli,
+            direction,
+            ctx.stamp.valid_as_of(),
+        )
+        .await
+        .map_err(map_jolux)?;
         into_value_response(resp)
     }
 }
@@ -396,5 +599,206 @@ mod tests {
             )
             .await;
         assert!(out["error"].as_str().unwrap().contains("not found"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Tranche B — Beziehungen.
+    // -----------------------------------------------------------------------
+
+    /// Canned eingehende Impacts: zwei Änderungen.
+    const IMPACTS_JSON: &str = r#"{
+      "head": { "vars": ["impact","type","date","comment","from"] },
+      "results": { "bindings": [
+        { "impact": { "type": "uri", "value": "https://fedlex.data.admin.ch/impact/1" },
+          "date": { "type": "literal", "value": "2019-06-01" },
+          "comment": { "type": "literal", "value": "Art. 5, 7" } },
+        { "impact": { "type": "uri", "value": "https://fedlex.data.admin.ch/impact/2" },
+          "date": { "type": "literal", "value": "2021-01-01" } }
+      ] }
+    }"#;
+
+    /// Canned ausgehende Impacts: ein Mantelerlass ändert ein Ziel.
+    const OUTGOING_JSON: &str = r#"{
+      "head": { "vars": ["impact","target","type","date"] },
+      "results": { "bindings": [{
+        "impact": { "type": "uri", "value": "https://fedlex.data.admin.ch/impact/9" },
+        "target": { "type": "uri", "value": "https://fedlex.data.admin.ch/eli/cc/2017/762" },
+        "date": { "type": "literal", "value": "2018-01-01" }
+      }] }
+    }"#;
+
+    /// Canned Zitationen (outgoing/incoming-Bindings).
+    const CITATIONS_JSON: &str = r#"{
+      "head": { "vars": ["from","to","desc"] },
+      "results": { "bindings": [
+        { "from": { "type": "uri", "value": "https://fedlex.data.admin.ch/eli/cc/2017/762/text" },
+          "to": { "type": "uri", "value": "https://fedlex.data.admin.ch/eli/cc/1998/3033/text" },
+          "desc": { "type": "literal", "value": "Art. 31" } },
+        { "from": { "type": "uri", "value": "https://fedlex.data.admin.ch/eli/cc/2017/762/text" },
+          "to": { "type": "uri", "value": "https://fedlex.data.admin.ch/eli/cc/1998/3033/text" } }
+      ] }
+    }"#;
+
+    #[tokio::test]
+    async fn tranche_b_tools_hidden_from_reader_visible_to_navigator() {
+        let r = registry_with(IMPACTS_JSON);
+        let reader = r.list_tools(Role::Reader);
+        assert!(reader.is_empty(), "Reader darf KEIN JoluxMetadata sehen");
+
+        let nav: Vec<String> = r
+            .list_tools(Role::Navigator)
+            .into_iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        for expected in [
+            "get_impacts",
+            "get_outgoing_impacts",
+            "get_article_history",
+            "get_citations",
+        ] {
+            assert!(
+                nav.contains(&expected.to_string()),
+                "Navigator fehlt: {expected}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn get_impacts_returns_changes_with_norm_provenance() {
+        let r = registry_with(IMPACTS_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_impacts",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
+        let impacts = out["data"].as_array().expect("impacts-Array");
+        assert_eq!(impacts.len(), 2);
+        assert_eq!(impacts[0]["comment"], "Art. 5, 7");
+        assert_eq!(out["provenance"]["kind"], "norm");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+    }
+
+    #[tokio::test]
+    async fn get_outgoing_impacts_carries_target_and_norm_provenance() {
+        let r = registry_with(OUTGOING_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_outgoing_impacts",
+                json!({ "eli": "eli/oc/2016/769" }),
+            )
+            .await;
+        assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
+        let impacts = out["data"].as_array().expect("impacts-Array");
+        assert_eq!(impacts.len(), 1);
+        assert_eq!(
+            impacts[0]["target"],
+            "https://fedlex.data.admin.ch/eli/cc/2017/762"
+        );
+        assert_eq!(out["provenance"]["kind"], "norm");
+        assert_eq!(out["provenance"]["eli"], "eli/oc/2016/769");
+    }
+
+    #[tokio::test]
+    async fn get_article_history_normalizes_eid_and_carries_norm_provenance() {
+        let client = Arc::new(MockSparqlClient::from_json(IMPACTS_JSON));
+        let mut r = Registry::new();
+        register_metadata_tools(&mut r, Arc::clone(&client));
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_article_history",
+                json!({ "eli": "eli/cc/2017/762", "eid": "art_14_a" }),
+            )
+            .await;
+        assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
+        assert_eq!(out["provenance"]["kind"], "norm");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+        // J18.2: art_14_a wird zu art_14a normalisiert (im SPARQL-Query sichtbar).
+        let q = client.last_query().expect("query gestellt");
+        assert!(q.contains("art_14a"), "eID nicht normalisiert: {q}");
+        assert!(!q.contains("art_14_a"), "roher eID im Query: {q}");
+    }
+
+    #[tokio::test]
+    async fn get_article_history_missing_eid_is_invalid_arguments() {
+        let r = registry_with(IMPACTS_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_article_history",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out["error"].as_str().unwrap().contains("invalid arguments"));
+    }
+
+    #[tokio::test]
+    async fn get_citations_default_direction_is_both_and_deduplicates() {
+        let client = Arc::new(MockSparqlClient::from_json(CITATIONS_JSON));
+        let mut r = Registry::new();
+        register_metadata_tools(&mut r, Arc::clone(&client));
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_citations",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
+        // Default = both → UNION-Query.
+        let q = client.last_query().expect("query gestellt");
+        assert!(q.contains("UNION"), "Default-Richtung nicht both: {q}");
+        // J7.4: Duplikat (from,to) entfernt → eine Zitation.
+        let cits = out["data"].as_array().expect("citations-Array");
+        assert_eq!(cits.len(), 1);
+        assert_eq!(cits[0]["description"], "Art. 31");
+        assert_eq!(out["provenance"]["kind"], "norm");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+    }
+
+    #[tokio::test]
+    async fn get_citations_outgoing_direction_uses_single_clause() {
+        let client = Arc::new(MockSparqlClient::from_json(CITATIONS_JSON));
+        let mut r = Registry::new();
+        register_metadata_tools(&mut r, Arc::clone(&client));
+        let _ = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_citations",
+                json!({ "eli": "eli/cc/2017/762", "direction": "outgoing" }),
+            )
+            .await;
+        let q = client.last_query().expect("query gestellt");
+        assert!(!q.contains("UNION"), "outgoing sollte ohne UNION sein: {q}");
+    }
+
+    #[tokio::test]
+    async fn get_citations_invalid_direction_is_invalid_arguments() {
+        let r = registry_with(CITATIONS_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_citations",
+                json!({ "eli": "eli/cc/2017/762", "direction": "sideways" }),
+            )
+            .await;
+        assert!(out["error"].as_str().unwrap().contains("invalid arguments"));
+    }
+
+    #[tokio::test]
+    async fn reader_call_on_get_citations_is_gracefully_denied() {
+        let r = registry_with(CITATIONS_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Reader),
+                "get_citations",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out["error"].as_str().unwrap().contains("not permitted"));
     }
 }

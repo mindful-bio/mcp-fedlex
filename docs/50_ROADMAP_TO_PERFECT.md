@@ -67,8 +67,11 @@ sind live-getestet — es fehlt nur die Tool-Schicht. Diese Tools sind **norm-pr
   `resolve_consolidation_at` in `crates/mcp-reader/src/metadata.rs` als `ToolPool::JoluxMetadata`,
   via `register_metadata_tools` registriert; Abnahme testgrün (siehe ADR-007).
 
-- **Tranche B — Beziehungen:** `get_impacts` / `get_outgoing_impacts` / `get_article_history`,
-  `get_citations`.
+- **Tranche B — Beziehungen: ✅ erledigt** — `get_impacts`, `get_outgoing_impacts`,
+  `get_article_history`, `get_citations` in `crates/mcp-reader/src/metadata.rs` als
+  `ToolPool::JoluxMetadata`, via `register_metadata_tools` registriert; Abnahme testgrün
+  (Norm-Provenance, eID-Normalisierung J18.2, `(from,to)`-Dedup J7.4, `direction`; siehe ADR-007).
+
 - **Tranche C — Einordnung:** `get_taxonomy`, `get_subdivisions` / `list_annexes`.
 - **Tranche D — Kontext (optional/nachrangig):** `treaties`, `genesis`, `publication`,
   `vocabulary` — nur projizieren, wenn ein ansV-Bedarf belegt ist (sonst bewusst zurückstellen).
