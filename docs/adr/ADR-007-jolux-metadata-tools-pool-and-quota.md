@@ -98,12 +98,17 @@ bereits pool-granular.
       über `tools/call` aufrufbar; Mock-Dispatch-Tests reichen die Primitive durch und prüfen
       Norm-Provenance, eID-Normalisierung (J18.2), `(from,to)`-Dedup (J7.4) und `direction`.
       (`metadata.rs::tests`, in `main.rs` via `register_metadata_tools` verdrahtet)
-- [ ] **Tranche C projiziert.** Einordnung (`get_taxonomy`, `get_subdivisions`/`list_annexes`)
-      noch offen.
+- [x] **Tranche C projiziert.** Einordnung (`get_taxonomy`, `get_subdivisions`/`list_annexes`)
+      ist in `tools/list` rollenabhängig sichtbar und über `tools/call` aufrufbar;
+      Mock-Dispatch-Tests reichen die Primitive durch und prüfen Norm-Provenance,
+      Sprach-Filter (`get_taxonomy`), den optionalen `type_uri`-Filter und den
+      Annex-Spezialfall (`subdivision-type/annex`, JLX-SUB-02).
+      (`metadata.rs::tests`, in `main.rs` via `register_metadata_tools` verdrahtet)
 
 - [ ] **Vollständigkeits-Matrix.** Jedes projizierte Primitiv ist in der Matrix aus
       [50_ROADMAP_TO_PERFECT.md](../50_ROADMAP_TO_PERFECT.md) (Schritt 3) als *projiziert*
       verbucht.
+
 
 
 ## Alternativen
@@ -133,11 +138,14 @@ bereits pool-granular.
 ---
 
 ## Status der Umsetzung
-**Tranche A (Temporal) und B (Beziehungen) umgesetzt** (`crates/mcp-reader/src/metadata.rs`):
-Tranche A — `check_in_force`, `list_versions`, `resolve_consolidation_at`; Tranche B —
-`get_impacts`, `get_outgoing_impacts`, `get_article_history`, `get_citations`. Alle als
-`ToolPool::JoluxMetadata`, via `register_metadata_tools` in `main.rs` verdrahtet, alle obigen
-Akzeptanzkriterien für A und B testgrün (`cargo test -p mcp-reader`, 116 Tests). **Tranche C
-(Einordnung) ist noch offen** und in Reihenfolge nach belegtem ansV-Bedarf zu projizieren.
+**Tranchen A, B und C vollständig umgesetzt** (`crates/mcp-reader/src/metadata.rs`):
+Tranche A (Temporal) — `check_in_force`, `list_versions`, `resolve_consolidation_at`;
+Tranche B (Beziehungen) — `get_impacts`, `get_outgoing_impacts`, `get_article_history`,
+`get_citations`; Tranche C (Einordnung) — `get_taxonomy`, `get_subdivisions`, `list_annexes`.
+Alle zehn Tools als `ToolPool::JoluxMetadata`, via `register_metadata_tools` in `main.rs`
+verdrahtet; alle obigen Akzeptanzkriterien für A, B und C testgrün
+(`cargo test -p mcp-reader`, 125 Tests). Damit ist G-1 (Projektion der JOLux-Metadaten-Schicht)
+geschlossen; offen bleibt nur die Vollständigkeits-Matrix (Roadmap Schritt 3) als Rückfall-Schutz.
+
 
 

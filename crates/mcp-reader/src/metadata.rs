@@ -14,7 +14,17 @@
 //! ein-/ausgehend/beide). Sie beantworten die gutachtenkritischen Fragen nach
 //! Wirkungsketten und Querverweisen zwischen Erlassen.
 //!
+//! Tranche C — Einordnung. Drei Hüllen um Taxonomie und Struktur:
+//! `get_taxonomy` (JLX-TAX-01, „In welchem Rechtsgebiet steht dieser Erlass?"),
+//! `get_subdivisions` (JLX-SUB-01, „Welche Untergliederungen kennt der Graph?",
+//! optional auf einen Typ gefiltert) und `list_annexes` (JLX-SUB-02, Spezialfall
+//! `subdivision-type/annex`). Beide Struktur-Tools sind ein **Lückenkatalog**,
+//! kein Inhaltsverzeichnis (J4.1): JOLux kennt nur Elemente mit mindestens einem
+//! Impact — Vollstruktur liefert ausschliesslich der AKN-Layer; eine leere Liste
+//! ist also normal und **kein** Beweis für „keine Artikel/Anhänge".
+//!
 //! ## Norm-Provenance statt Hinweis (ADR-007, im Gegensatz zu Discovery)
+
 //!
 //! Anders als die Discovery-Tools (ADR-006) lesen diese Tools eine Eigenschaft
 //! eines **bekannten** Erlasses (Eingabe ist ein ELI), nicht einen Suchtreffer.
@@ -35,7 +45,8 @@ use async_trait::async_trait;
 use fedlex_core::{Eli, Response};
 use fedlex_jolux::{
     check_in_force, get_article_history, get_citations, get_impacts, get_outgoing_impacts,
-    list_versions, resolve_consolidation_at, CitationDirection, JoluxError, Language, SparqlClient,
+    get_subdivisions, get_taxonomy, list_annexes, list_versions, resolve_consolidation_at,
+    CitationDirection, JoluxError, Language, SparqlClient,
 };
 
 use serde_json::{json, Value};
@@ -69,7 +80,17 @@ where
     registry.register(Arc::new(GetArticleHistory {
         client: Arc::clone(&client),
     }));
-    registry.register(Arc::new(GetCitations { client }));
+    registry.register(Arc::new(GetCitations {
+        client: Arc::clone(&client),
+    }));
+    // Tranche C — Einordnung.
+    registry.register(Arc::new(GetTaxonomy {
+        client: Arc::clone(&client),
+    }));
+    registry.register(Arc::new(GetSubdivisions {
+        client: Arc::clone(&client),
+    }));
+    registry.register(Arc::new(ListAnnexes { client }));
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +144,22 @@ fn arg_direction(args: &Value) -> Result<CitationDirection, ToolError> {
         Some(other) => Err(ToolError::InvalidArguments(format!(
             "`direction` muss outgoing|incoming|both sein, nicht `{other}`"
         ))),
+    }
+}
+
+/// Optionales Argument `type_uri` für `get_subdivisions` lesen. Wenn gesetzt,
+/// muss es eine nicht-leere Vokabular-URI sein; das Primitiv saniert sie
+/// zusätzlich gegen Injektion.
+fn arg_type_uri(args: &Value) -> Result<Option<String>, ToolError> {
+    match args.get("type_uri") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if !s.trim().is_empty() => Ok(Some(s.clone())),
+        Some(Value::String(_)) => Err(ToolError::InvalidArguments(
+            "`type_uri` darf nicht leer sein".into(),
+        )),
+        Some(_) => Err(ToolError::InvalidArguments(
+            "`type_uri` muss ein String sein".into(),
+        )),
     }
 }
 
@@ -406,6 +443,124 @@ where
         )
         .await
         .map_err(map_jolux)?;
+        into_value_response(resp)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tranche C — Einordnung (Taxonomie/Struktur).
+// ---------------------------------------------------------------------------
+
+/// JLX-TAX-01. In welchem Rechtsgebiet steht dieser Erlass?
+struct GetTaxonomy<C> {
+    client: Arc<C>,
+}
+
+#[async_trait]
+impl<C> McpTool for GetTaxonomy<C>
+where
+    C: SparqlClient + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "get_taxonomy"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::JoluxMetadata
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Listet die Rechtstaxonomie-Eintraege, denen ein Erlass zugeordnet ist, mit Label und skos:broader-Parent fuer Hierarchie-Traversal (JLX-TAX-01). Caveat: ~10'000 CAs sind unklassifiziert - eine leere Liste ist normal. Liefert einen BELEG (kind=norm) ueber den genannten Erlass.",
+            "properties": {
+                "eli": { "type": "string", "description": "ELI des Erlasses, z.B. eli/cc/2017/762" },
+                "lang": { "type": "string", "enum": ["de", "fr", "it", "en", "rm"], "default": "de" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let eli = arg_eli(&args)?;
+        let lang = arg_lang(&args)?;
+        let resp = get_taxonomy(self.client.as_ref(), &eli, ctx.stamp.valid_as_of(), lang)
+            .await
+            .map_err(map_jolux)?;
+        into_value_response(resp)
+    }
+}
+
+/// JLX-SUB-01. Welche Untergliederungen kennt der Graph für diesen Erlass?
+struct GetSubdivisions<C> {
+    client: Arc<C>,
+}
+
+#[async_trait]
+impl<C> McpTool for GetSubdivisions<C>
+where
+    C: SparqlClient + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "get_subdivisions"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::JoluxMetadata
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Listet die im Graphen bekannten Untergliederungen eines Erlasses (Artikel, Kapitel, Anhang ...), transitiv (JLX-SUB-01). WICHTIG: Luckenkatalog, KEIN Inhaltsverzeichnis - JOLux kennt nur Elemente mit mind. einem Impact (0.4-8.5 % der eIDs); Vollstruktur liefert nur der AKN-Layer. Leere Liste ist normal. Optional auf einen Subdivision-Typ gefiltert. Liefert einen BELEG (kind=norm).",
+            "properties": {
+                "eli": { "type": "string", "description": "ELI des Erlasses, z.B. eli/cc/2017/762" },
+                "type_uri": { "type": "string", "description": "Optionale Subdivision-Typ-URI zum Filtern, z.B. https://fedlex.data.admin.ch/vocabulary/subdivision-type/article" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let eli = arg_eli(&args)?;
+        let type_uri = arg_type_uri(&args)?;
+        let resp = get_subdivisions(
+            self.client.as_ref(),
+            &eli,
+            ctx.stamp.valid_as_of(),
+            type_uri.as_deref(),
+        )
+        .await
+        .map_err(map_jolux)?;
+        into_value_response(resp)
+    }
+}
+
+/// JLX-SUB-02. Welche Anhänge hat dieser Erlass?
+struct ListAnnexes<C> {
+    client: Arc<C>,
+}
+
+#[async_trait]
+impl<C> McpTool for ListAnnexes<C>
+where
+    C: SparqlClient + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "list_annexes"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::JoluxMetadata
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Listet die Anhaenge eines Erlasses (Subdivision-Typ annex), Spezialfall von get_subdivisions (JLX-SUB-02). Eigenes Tool, weil das AKN-Mapping abweicht (Annexe erscheinen im XML als <component>, nicht <attachment>). Nur ~500 CAs haben Annexe; leere Liste ist normal. Liefert einen BELEG (kind=norm).",
+            "properties": {
+                "eli": { "type": "string", "description": "ELI des Erlasses, z.B. eli/cc/2017/762" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let eli = arg_eli(&args)?;
+        let resp = list_annexes(self.client.as_ref(), &eli, ctx.stamp.valid_as_of())
+            .await
+            .map_err(map_jolux)?;
         into_value_response(resp)
     }
 }
@@ -796,6 +951,199 @@ mod tests {
             .dispatch(
                 &ctx(Role::Reader),
                 "get_citations",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out["error"].as_str().unwrap().contains("not permitted"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Tranche C — Einordnung (Taxonomie/Struktur).
+    // -----------------------------------------------------------------------
+
+    /// Canned Taxonomie: ein Eintrag mit Label und Parent.
+    const TAXONOMY_JSON: &str = r#"{
+      "head": { "vars": ["tax","label","parent"] },
+      "results": { "bindings": [{
+        "tax": { "type": "uri", "value": "https://fedlex.data.admin.ch/vocabulary/legal-taxonomy/730" },
+        "label": { "type": "literal", "xml:lang": "de", "value": "Energie" },
+        "parent": { "type": "uri", "value": "https://fedlex.data.admin.ch/vocabulary/legal-taxonomy/7" }
+      }] }
+    }"#;
+
+    /// Canned Subdivisions: ein Artikel (mit Typ) + eine ohne Typ.
+    const SUBS_JSON: &str = r#"{
+      "head": { "vars": ["sub","type"] },
+      "results": { "bindings": [
+        { "sub": { "type": "uri", "value": "https://fedlex.data.admin.ch/eli/cc/2017/762/art_14" },
+          "type": { "type": "uri", "value": "https://fedlex.data.admin.ch/vocabulary/subdivision-type/article" } },
+        { "sub": { "type": "uri", "value": "https://fedlex.data.admin.ch/eli/cc/2017/762/art_19" } }
+      ] }
+    }"#;
+
+    #[tokio::test]
+    async fn tranche_c_tools_hidden_from_reader_visible_to_navigator() {
+        let r = registry_with(TAXONOMY_JSON);
+        let reader = r.list_tools(Role::Reader);
+        assert!(reader.is_empty(), "Reader darf KEIN JoluxMetadata sehen");
+
+        let nav: Vec<String> = r
+            .list_tools(Role::Navigator)
+            .into_iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        for expected in ["get_taxonomy", "get_subdivisions", "list_annexes"] {
+            assert!(
+                nav.contains(&expected.to_string()),
+                "Navigator fehlt: {expected}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn get_taxonomy_resolves_label_in_requested_lang_with_norm_provenance() {
+        let client = Arc::new(MockSparqlClient::from_json(TAXONOMY_JSON));
+        let mut r = Registry::new();
+        register_metadata_tools(&mut r, Arc::clone(&client));
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_taxonomy",
+                json!({ "eli": "eli/cc/2017/762", "lang": "de" }),
+            )
+            .await;
+        assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
+        let entries = out["data"].as_array().expect("taxonomy-Array");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["label"], "Energie");
+        assert!(entries[0]["broader"].as_str().unwrap().ends_with("/7"));
+        assert_eq!(out["provenance"]["kind"], "norm");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+        // Sprach-Tag landet im Query.
+        let q = client.last_query().expect("query gestellt");
+        assert!(
+            q.contains(r#"LANG(?label) = "de""#),
+            "lang-Filter fehlt: {q}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_taxonomy_invalid_lang_is_invalid_arguments() {
+        let r = registry_with(TAXONOMY_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_taxonomy",
+                json!({ "eli": "eli/cc/2017/762", "lang": "xx" }),
+            )
+            .await;
+        assert!(out["error"].as_str().unwrap().contains("invalid arguments"));
+    }
+
+    #[tokio::test]
+    async fn get_subdivisions_lists_transitively_with_norm_provenance() {
+        let r = registry_with(SUBS_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_subdivisions",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
+        let subs = out["data"].as_array().expect("subdivisions-Array");
+        assert_eq!(subs.len(), 2);
+        assert!(subs[0]["subdivision_type"]
+            .as_str()
+            .unwrap()
+            .ends_with("/article"));
+        assert_eq!(out["provenance"]["kind"], "norm");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+    }
+
+    #[tokio::test]
+    async fn get_subdivisions_type_uri_filters_query() {
+        let client = Arc::new(MockSparqlClient::from_json(SUBS_JSON));
+        let mut r = Registry::new();
+        register_metadata_tools(&mut r, Arc::clone(&client));
+        let _ = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_subdivisions",
+                json!({
+                    "eli": "eli/cc/2017/762",
+                    "type_uri": "https://fedlex.data.admin.ch/vocabulary/subdivision-type/article"
+                }),
+            )
+            .await;
+        let q = client.last_query().expect("query gestellt");
+        assert!(
+            q.contains("subdivision-type/article"),
+            "Typ-Filter nicht im Query: {q}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_subdivisions_empty_type_uri_is_invalid_arguments() {
+        let r = registry_with(SUBS_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_subdivisions",
+                json!({ "eli": "eli/cc/2017/762", "type_uri": "  " }),
+            )
+            .await;
+        assert!(out["error"].as_str().unwrap().contains("invalid arguments"));
+    }
+
+    #[tokio::test]
+    async fn list_annexes_filters_on_annex_type_with_norm_provenance() {
+        let client = Arc::new(MockSparqlClient::from_json(SUBS_JSON));
+        let mut r = Registry::new();
+        register_metadata_tools(&mut r, Arc::clone(&client));
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "list_annexes",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
+        assert_eq!(out["provenance"]["kind"], "norm");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+        // JLX-SUB-02: Filter auf subdivision-type/annex.
+        let q = client.last_query().expect("query gestellt");
+        assert!(
+            q.contains("subdivision-type/annex"),
+            "Annex-Filter fehlt: {q}"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_subdivisions_is_normal_not_error() {
+        let empty = r#"{ "head": { "vars": ["sub"] }, "results": { "bindings": [] } }"#;
+        let r = registry_with(empty);
+        let out = r
+            .dispatch(
+                &ctx(Role::Navigator),
+                "get_subdivisions",
+                json!({ "eli": "eli/cc/1999/404" }),
+            )
+            .await;
+        assert!(
+            out.get("error").is_none(),
+            "leere Liste ist kein Fehler: {out}"
+        );
+        assert!(out["data"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn reader_call_on_get_subdivisions_is_gracefully_denied() {
+        let r = registry_with(SUBS_JSON);
+        let out = r
+            .dispatch(
+                &ctx(Role::Reader),
+                "get_subdivisions",
                 json!({ "eli": "eli/cc/2017/762" }),
             )
             .await;
