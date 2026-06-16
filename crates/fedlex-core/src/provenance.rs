@@ -73,10 +73,10 @@ impl Provenance {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use time::macros::{date, datetime};
 
     fn sample() -> Provenance {
@@ -138,5 +138,3 @@ mod tests {
         assert_eq!(p.kind, ProvenanceKind::Norm);
     }
 }
-
-
