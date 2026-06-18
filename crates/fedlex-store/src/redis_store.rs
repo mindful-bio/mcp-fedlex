@@ -14,6 +14,11 @@ pub enum RedisError {
     /// Fehler aus der darunterliegenden Redis-Bibliothek.
     #[error("redis error: {0}")]
     Redis(#[from] redis::RedisError),
+    /// Fehler beim Aufbau der gegenseitig authentifizierten TLS-Verbindung
+    /// (ADR-005): fehlendes/ungültiges Zertifikatsmaterial oder ein
+    /// Klartext-Schema, wo mTLS verlangt ist.
+    #[error("redis tls error: {0}")]
+    Tls(String),
 }
 
 /// Async-Scratchpad über Redis.

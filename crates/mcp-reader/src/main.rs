@@ -40,7 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
     let addr: SocketAddr = bind_addr.parse()?;
 
-    let backend = RedisQuotaBackend::connect(&redis_url)?;
+    // Quota-Redis-Verbindung. Liegt Zertifikatsmaterial vor (cert-manager-
+    // Volume, ADR-005), spricht der Reader gegenseitig authentifiziert (mTLS)
+    // über `rediss://`. Ohne Material bleibt es bei der Klartext-Verbindung,
+    // abgesichert durch die Default-Deny-NetworkPolicy.
+    let backend = build_quota_backend(&redis_url)?;
     let limiter = RateLimiter::with_policy(backend.clone(), QuotaPolicy::default());
 
     // Credential-Herkunft zur Laufzeit. JWT-Konfiguration gewinnt vor dem
@@ -89,6 +93,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     serve(listener, app(service, Arc::clone(&health))).await?;
     Ok(())
+}
+
+/// Baut das Quota-Backend anhand der Umgebung.
+///
+/// Sind MCP_REDIS_TLS_CA_FILE, MCP_REDIS_TLS_CERT_FILE und
+/// MCP_REDIS_TLS_KEY_FILE gesetzt (cert-manager-Volume, ADR-005), verbindet
+/// sich der Reader gegenseitig authentifiziert (mTLS) über `rediss://`. Die
+/// URL muss dann `rediss://` sein, sonst bricht der Start ab — eine
+/// fehlkonfigurierte Klartext-URL bei vorhandenem Zertifikatsmaterial darf
+/// nicht stillschweigend unverschlüsselt verbinden.
+///
+/// Ohne Zertifikatsmaterial bleibt es bei der bisherigen Klartext-Verbindung,
+/// abgesichert durch die Default-Deny-NetworkPolicy. Das hält Dev- und
+/// Migrationsbetrieb funktionsfähig.
+fn build_quota_backend(redis_url: &str) -> Result<RedisQuotaBackend, Box<dyn std::error::Error>> {
+    let ca = std::env::var("MCP_REDIS_TLS_CA_FILE").ok();
+    let cert = std::env::var("MCP_REDIS_TLS_CERT_FILE").ok();
+    let key = std::env::var("MCP_REDIS_TLS_KEY_FILE").ok();
+
+    match (ca, cert, key) {
+        (Some(ca), Some(cert), Some(key)) => {
+            let tls = fedlex_store::RedisTlsConfig::from_files(&ca, &cert, &key)?;
+            let backend = RedisQuotaBackend::connect_with_tls(redis_url, &tls)?;
+            println!("Quota-Redis über mTLS verbunden (ADR-005, {redis_url})");
+            Ok(backend)
+        }
+        (None, None, None) => {
+            let backend = RedisQuotaBackend::connect(redis_url)?;
+            println!(
+                "Quota-Redis im Klartext verbunden ({redis_url}); \
+                 mTLS deaktiviert (kein Zertifikatsmaterial)"
+            );
+            Ok(backend)
+        }
+        _ => Err("MCP_REDIS_TLS_{CA,CERT,KEY}_FILE müssen gemeinsam gesetzt sein \
+                  (mTLS braucht CA, Client-Zert und Schlüssel)"
+            .into()),
+    }
 }
 
 /// Wählt den Auth-Resolver anhand der Umgebung.

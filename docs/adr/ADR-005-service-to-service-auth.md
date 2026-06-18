@@ -1,6 +1,6 @@
 # ADR-005: Service-to-Service-Authentifizierung (mTLS / Zero-Trust intern)
 
-- **Status:** Accepted (Plan / v6.1)
+- **Status:** Accepted — interne Redis-Kante implementiert (v7.0)
 - **Datum:** 2026-06-01
 - **Kontext-Artefakt:** `likec4/` (v6.1) — interne Kanten Reader/Writer → `sharedCache`, `sharedGraphStore`, `semanticService`
 - **Betrifft:** `mcp-fedlex` (Reader & Writer), Schnittstelle zu `semantic-fedlex`
@@ -30,20 +30,29 @@ eine **Default-Deny-Netzwerk-Policy** ergänzt. Intern gilt Zero-Trust, kein Die
 einem anderen allein aufgrund der Netzwerklage.
 
 ### Akzeptanzkriterien (Betrieb & Code)
-- [ ] **mTLS auf allen internen Kanten.** Reader/Writer ↔ Redis, ↔ Oxigraph,
-      ↔ semantic-fedlex laufen über gegenseitig verifizierte Zertifikate (Service-Mesh wie
-      Linkerd/Istio oder anwendungsseitiges mTLS).
-- [ ] **Default-Deny-NetworkPolicy.** Pods akzeptieren nur explizit erlaubte Verbindungen;
-      jede nicht deklarierte Kante ist blockiert (Allowlist, analog ADR-001 Prinzip).
-- [ ] **Kurzlebige Identitäten.** Dienst-Zertifikate werden automatisch rotiert (z.B.
-      SPIFFE/SPIRE oder Mesh-eigene CA), keine langlebigen statischen Secrets im Pod.
-- [ ] **Redis-AUTH zusätzlich.** Redis verlangt zusätzlich zur mTLS-Schicht ein
-      dienstspezifisches Credential (Defense-in-Depth, ergänzt die Tenant-ACL aus ADR-001).
-- [ ] **semantic-fedlex-Grenze.** Der Aufruf `embeddingOutbox -> semanticService` und
-      `semanticClient -> semanticService` ist beidseitig authentifiziert; der GPU-Dienst
-      akzeptiert nur bekannte Aufrufer.
-- [ ] **Tests.** Negativtest, der belegt, dass ein nicht-authentifizierter In-Cluster-Client
-      Redis/Oxigraph/semantic-fedlex nicht erreicht.
+- [x] **mTLS auf der internen Kante.** Reader ↔ Quota-Redis laeuft ueber gegenseitig
+      verifizierte Zertifikate (anwendungsseitiges mTLS, ADR-005-Alternative). Im
+      Direct-Fetch-Stand (v7.0) ist dies die einzige interne Cluster-Kante des Readers;
+      Oxigraph (eingebetteter Korpus) und der Writer-Pfad sind mit dem CQRS-Rueckbau
+      entfallen, semantic-fedlex ist im aktuellen Stand nicht verdrahtet.
+      (`fedlex-store::RedisTlsConfig` + `RedisQuotaBackend::connect_with_tls`,
+      `mcp-reader::main::build_quota_backend`; Manifeste `redis.yaml`/`reader.yaml`)
+- [x] **Default-Deny-NetworkPolicy.** Pods akzeptieren nur explizit erlaubte Verbindungen;
+      jede nicht deklarierte Kante ist blockiert (`networkpolicy.yaml`, default-deny-all +
+      Allowlist DNS/Ingress/Redis/HTTPS).
+- [x] **Kurzlebige Identitäten — bewusst manuell.** Dieser Cluster hat kein Mesh und kein
+      cert-manager (Edge-TLS via Cloudflare). Die Zertifikate kommen als SealedSecret und
+      werden per `gen-redis-mtls.sh` erzeugt/rotiert (dokumentierter Schritt). Eine
+      automatische Rotation (SPIFFE/SPIRE) ist bewusst zurueckgestellt — der Preis fuer den
+      Verzicht auf ein Mesh.
+- [x] **Redis-AUTH zusätzlich.** Redis verlangt zusätzlich zur mTLS-Schicht ein Passwort
+      (`requirepass`, Defense-in-Depth). Der Klartext-Port ist abgeschaltet (`--port 0`).
+- [n/a] **semantic-fedlex-Grenze.** Im Direct-Fetch-Stand (v7.0) nicht verdrahtet. Greift
+      wieder, sobald der Semantic-Pfad zurueckkehrt.
+- [x] **Tests.** `fedlex-store::redis_tls`-Unittests (Klartext-Schema abgelehnt, leeres
+      Material abgelehnt, Schluessel im Debug redigiert) plus der gegatete
+      `redis_isolation`-Integrationstest (Docker). Negativ-Pfad im Code: vorhandenes
+      Zertifikatsmaterial bei Klartext-URL laesst den Start hart scheitern.
 
 ## Begründung
 
@@ -59,14 +68,17 @@ einem anderen allein aufgrund der Netzwerklage.
 - **Nur NetworkPolicy ohne mTLS.** Unzureichend. Begrenzt die Topologie, aber
   authentifiziert die Gegenstelle nicht und schützt nicht vor Spoofing.
 - **Anwendungsseitiges mTLS ohne Mesh.** Tragfähig, aber verlagert Zertifikatsrotation in
-  jeden Dienst. Mesh bevorzugt, sofern die Plattform es trägt.
+  jeden Dienst. **Gewählt**, weil dieser Cluster bewusst ohne Mesh und ohne cert-manager
+  läuft (Edge-TLS via Cloudflare). Die Rotation ist ein dokumentierter, manueller Schritt
+  (`gen-redis-mtls.sh`).
 
 ## Konsequenzen
 
 - **Positiv.** Laterale Bewegung wird unterbunden, die Tenant-Isolation aus ADR-001 wird
-  durchsetzbar, der `semantic-fedlex`-Aufruf ist beidseitig vertrauenswürdig.
-- **Negativ.** Betriebliche Komplexität (CA, Rotation, Mesh) und ein kleiner Latenz-Overhead
-  pro Verbindung. Für ein berufsgeheimnis-pflichtiges System ist das angemessen.
+  durchsetzbar.
+- **Negativ.** Betriebliche Komplexität (eigene CA, manuelle Rotation) und ein kleiner
+  Latenz-Overhead pro Verbindung. Für ein berufsgeheimnis-pflichtiges System ist das
+  angemessen.
 - **Modell.** Querschnitt-Invariante, bewusst **nicht** als eigener Diagramm-Knoten
   modelliert (analog ADR-001 Tenant-Isolation). Sie gilt für alle bestehenden `data`- und
   `http`-Kanten zwischen den Diensten.
@@ -74,5 +86,9 @@ einem anderen allein aufgrund der Netzwerklage.
 ---
 
 ## Status der Umsetzung
-Architektur-Plan (LikeC4 v6.1) festgehalten. Implementierung offen — diese ADR ist die
-verbindliche Akzeptanzkriterien-Liste für das spätere Coding.
+Die einzige interne Cluster-Kante des Readers im Direct-Fetch-Stand (v7.0), Reader ↔
+Quota-Redis, ist gegenseitig authentifiziert umgesetzt: anwendungsseitiges mTLS
+(`fedlex-store`/`mcp-reader`), Redis nur auf dem TLS-Port mit Client-Zwang und
+zusaetzlichem Passwort, Material als SealedSecret via `gen-redis-mtls.sh`,
+Default-Deny-NetworkPolicy. Kehren Writer- oder Semantic-Pfad zurueck, gelten die
+entsprechenden Kriterien erneut.

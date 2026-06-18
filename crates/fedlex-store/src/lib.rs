@@ -18,6 +18,9 @@ pub mod redis_store;
 #[cfg(feature = "redis-store")]
 pub mod token_bucket;
 
+#[cfg(feature = "redis-tls")]
+pub mod redis_tls;
+
 #[cfg(feature = "oxigraph-store")]
 pub mod oxigraph_corpus;
 
@@ -30,6 +33,9 @@ pub use redis_store::{RedisError, RedisScratchpad};
 
 #[cfg(feature = "redis-store")]
 pub use token_bucket::{Acquisition, BucketParams, RedisTokenBucket};
+
+#[cfg(feature = "redis-tls")]
+pub use redis_tls::RedisTlsConfig;
 
 #[cfg(feature = "oxigraph-store")]
 pub use oxigraph_corpus::{GraphError, OxigraphCorpus};

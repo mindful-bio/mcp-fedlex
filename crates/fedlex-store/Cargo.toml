@@ -11,6 +11,10 @@ workspace = true
 [features]
 default = []
 redis-store = ["dep:redis"]
+# Gegenseitig authentifizierte Redis-Verbindung (ADR-005). Aktiviert rustls in
+# der redis-Bibliothek, damit der Reader per Client-Zertifikat gegen das
+# Quota-Redis authentifiziert (mTLS) statt im Klartext zu sprechen.
+redis-tls = ["redis-store", "redis/tls-rustls", "redis/tokio-rustls-comp"]
 oxigraph-store = ["dep:oxigraph", "dep:time"]
 
 [dependencies]

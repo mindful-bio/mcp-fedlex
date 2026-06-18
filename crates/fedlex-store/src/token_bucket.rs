@@ -89,6 +89,20 @@ impl RedisTokenBucket {
         })
     }
 
+    /// Verbindet sich gegenseitig authentifiziert (mTLS, ADR-005, Feature
+    /// `redis-tls`). Die URL muss `rediss://` sein; das Client-Zertifikat aus
+    /// `tls` weist den Reader gegenüber Redis aus, die CA prüft die Gegenseite.
+    #[cfg(feature = "redis-tls")]
+    pub fn connect_with_tls(
+        url: &str,
+        tls: &crate::redis_tls::RedisTlsConfig,
+    ) -> Result<Self, super::RedisError> {
+        Ok(Self {
+            client: crate::redis_tls::build_tls_client(url, tls)?,
+            script: Script::new(TOKEN_BUCKET_LUA),
+        })
+    }
+
     /// Versucht, `cost` Tokens aus dem Bucket `key` abzubuchen.
     ///
     /// `now_ms` ist die aktuelle Wall-Clock in Millisekunden. Der Aufruf ist

@@ -54,6 +54,20 @@ mod redis_backend {
                 RedisTokenBucket::connect(url).map_err(|e| QuotaError::Backend(e.to_string()))?;
             Ok(Self { bucket })
         }
+
+        /// Verbindet sich gegenseitig authentifiziert (mTLS, ADR-005). Die URL
+        /// muss `rediss://` sein; das Client-Zertifikat weist den Reader gegen
+        /// das Quota-Redis aus, die CA prüft die Gegenseite. So ist die einzige
+        /// interne Cluster-Kante des Readers (Reader → Redis) beidseitig
+        /// authentifiziert statt im Klartext.
+        pub fn connect_with_tls(
+            url: &str,
+            tls: &fedlex_store::RedisTlsConfig,
+        ) -> Result<Self, QuotaError> {
+            let bucket = RedisTokenBucket::connect_with_tls(url, tls)
+                .map_err(|e| QuotaError::Backend(e.to_string()))?;
+            Ok(Self { bucket })
+        }
     }
 
     impl QuotaBackend for RedisQuotaBackend {

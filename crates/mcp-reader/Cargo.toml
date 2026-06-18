@@ -18,7 +18,7 @@ path = "src/lib.rs"
 
 [dependencies]
 fedlex-core = { path = "../fedlex-core" }
-fedlex-store = { path = "../fedlex-store", features = ["redis-store"] }
+fedlex-store = { path = "../fedlex-store", features = ["redis-store", "redis-tls"] }
 fedlex-telemetry = { path = "../fedlex-telemetry" }
 fedlex-jolux = { path = "../fedlex-jolux" }
 fedlex-akn = { path = "../fedlex-akn" }
