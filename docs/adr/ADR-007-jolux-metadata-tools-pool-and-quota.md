@@ -105,9 +105,14 @@ bereits pool-granular.
       Annex-Spezialfall (`subdivision-type/annex`, JLX-SUB-02).
       (`metadata.rs::tests`, in `main.rs` via `register_metadata_tools` verdrahtet)
 
-- [ ] **Vollständigkeits-Matrix.** Jedes projizierte Primitiv ist in der Matrix aus
+- [x] **Vollständigkeits-Matrix.** Jedes projizierte Primitiv ist in der Matrix aus
       [50_ROADMAP_TO_PERFECT.md](../50_ROADMAP_TO_PERFECT.md) (Schritt 3) als *projiziert*
-      verbucht.
+      verbucht. Verankert in `crates/mcp-reader/tests/lexicon_projection.rs` (offline, läuft
+      in jeder `cargo test`-Runde): 47 Lexikon-IDs → 21 projiziert / 26 begründet
+      ausgeschlossen; zusätzlich 1 Composite-Tool (`compare_versions`, Pool `Validation`,
+      ohne Lexikon-Primitiv, über `COMPOSITE_TOOLS`-Allowlist verbucht) ⇒ 22 registrierte
+      MCP-Tools. Der Test wird rot, sobald ein neues Lexikon-Primitiv oder Composite-Tool
+      ohne bewusste Zuordnung dazukommt (G-4-Schutz).
 
 
 
@@ -145,7 +150,8 @@ Tranche B (Beziehungen) — `get_impacts`, `get_outgoing_impacts`, `get_article_
 Alle zehn Tools als `ToolPool::JoluxMetadata`, via `register_metadata_tools` in `main.rs`
 verdrahtet; alle obigen Akzeptanzkriterien für A, B und C testgrün
 (`cargo test -p mcp-reader`, 125 Tests). Damit ist G-1 (Projektion der JOLux-Metadaten-Schicht)
-geschlossen; offen bleibt nur die Vollständigkeits-Matrix (Roadmap Schritt 3) als Rückfall-Schutz.
+geschlossen; die Vollständigkeits-Matrix (Roadmap Schritt 3) ist mit
+`lexicon_projection.rs` ebenfalls verankert. Alle Akzeptanzkriterien erfüllt.
 
 
 

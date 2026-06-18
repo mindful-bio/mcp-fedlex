@@ -91,7 +91,7 @@ Discovery** (gleiches Live-Lastprofil), und **Norm-Provenance** für alle Tranch
 **Abnahme.** Pro Tool: `tools/list` zeigt es rollenabhängig; Dispatch-Test mit Norm-Provenance
 im Wire-Format; mindestens ein Live-/Mock-Test, der das Primitiv über das Tool durchreicht.
 
-### Schritt 3 — Tool-Vollständigkeit als Test verankern  · *verhindert Rückfall (G-4)*
+### Schritt 3 — Tool-Vollständigkeit als Test verankern  · ✅ *erledigt — schliesst G-4*
 
 **Warum.** Damit eine Lücke wie G-1 nie wieder unbemerkt entsteht.
 
@@ -100,8 +100,19 @@ dokumentierte, agenten-taugliche Primitiv genau einem Zustand zuordnet: **projiz
 oder **begründet ausgeschlossen** (z.B. `hollow_document`/`chunk_document` als RAG-Bausteine für
 semantic-fedlex, G-2). Bricht, wenn ein neues Primitiv ohne Zuordnung dazukommt.
 
-**Abnahme.** Matrix lückenlos; CI-Test rot, wenn ein Lexikon-Primitiv ohne Tool/Ausschluss
-auftaucht.
+**Erledigt (2026-06-16).** Verankert in `crates/mcp-reader/tests/lexicon_projection.rs` (offline,
+läuft in jeder `cargo test`-Runde, **kein** `#[ignore]`). Die `MATRIX` ordnet alle 47 Lexikon-IDs
+zu (**21 projiziert / 26 begründet ausgeschlossen**); registrierte Composite-Tools ohne
+Lexikon-Primitiv (aktuell nur `compare_versions`, Pool `Validation`) stehen in der
+`COMPOSITE_TOOLS`-Allowlist ⇒ **22 registrierte MCP-Tools** insgesamt. Sechs Assertions:
+Lexikon↔Matrix deckungsgleich (G-4-Schutz), jedes `Projected` real registriert, kein
+registriertes Tool verwaist (Matrix ∪ Composite == Registry), Zähl-Invariante (21/26/+1/=22),
+Pool-Zuordnung maschinell verifiziert (`pool_of`; Lexikon-Tools nie in `Validation`/`Workspace`,
+`compare_versions` == `Validation`) sowie RBAC/Monotonie (Reader ⊆ Navigator ⊆ Validator;
+Composite nur für Validator sichtbar).
+
+**Abnahme.** ✅ Matrix lückenlos; CI-Test rot, wenn ein Lexikon-Primitiv ohne Tool/Ausschluss
+auftaucht (`cargo test -p mcp-reader --test lexicon_projection`).
 
 ### Schritt 4 — End-to-End-Beleg-Kette ansV ↔ Reader  · *beweist „nutzbar"*
 
@@ -111,7 +122,20 @@ auftaucht.
 (Hinweis) → `check_in_force`/`read_article` (Norm) → zitierte Quelle endet `Verified`; geratener
 ELI bleibt korrekt `Unverified` (Negativfall).
 
-**Abnahme.** Beide Pfade grün; Evidence-Log enthält die erwarteten Tool-Calls in Reihenfolge.
+**Erledigt (2026-06-16).** Verankert in `crates/ansv-fedlex/tests/e2e_belegkette.rs` (offline,
+läuft in jeder `cargo test`-Runde, **kein** `#[ignore]`). Ein winziger axum-Mock bedient beide
+HTTP-Gegenstellen des `GutachtenRunner` — `POST /rpc` (Reader: `tools/list`/`tools/call` in der
+echten `{data, provenance}`-Form) und `POST /chat/completions` (scriptgesteuertes LLM) —, sodass
+der **ganze Lauf** deterministisch durchläuft. Test 1 (`frage_ohne_eli_endet_verifiziert`):
+`search_law` (Hinweis, kein `eid`) → `read_article` (Norm) → die zitierte Quelle endet `Verified`
+mit `text_match: true`, **belegt durch den `read_article`-Record** (nicht den Hinweis); Tool-Calls
+stehen in erwarteter Reihenfolge im Evidence-Log **und** in den `RunEvent`s (+ `Done`). Test 2
+(`geratener_eli_bleibt_unverifiziert`): ein neben Art. 19 erfundener Fremd-ELI bleibt korrekt
+`Unverified`, während die echte Quelle `Verified` ist.
+
+**Abnahme.** ✅ Beide Pfade grün; Evidence-Log enthält die erwarteten Tool-Calls in Reihenfolge
+(`cargo test -p ansv-fedlex --test e2e_belegkette`).
+
 
 ### Schritt 5 — M10 abschliessen (Day-2-Härtung)  · *Betriebsfähigkeit*
 

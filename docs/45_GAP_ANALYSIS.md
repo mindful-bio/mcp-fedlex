@@ -104,10 +104,18 @@ Die in `40_FINDINGS.md` beschriebene Blockade (kein Einstiegs-ELI) bleibt der ak
 G-1 zeigt aber: Selbst **mit** Discovery fehlen dem Agenten die belegfähigen Metadaten-Tools,
 um „in Kraft?"/„geändert durch?" sauber zu beantworten.
 
-### G-4 — Tool-Vollständigkeit nirgends als Test verankert
+### G-4 — Tool-Vollständigkeit nirgends als Test verankert  · *geschlossen (2026-06-16)*
 
-Es gibt keinen Test „jedes im Lexikon dokumentierte, agenten-taugliche Primitiv hat ein Tool
-**oder** einen begründeten Ausschluss". Die Lücken G-1/G-2 konnten deshalb unbemerkt entstehen.
+~~Es gibt keinen Test „jedes im Lexikon dokumentierte, agenten-taugliche Primitiv hat ein Tool
+**oder** einen begründeten Ausschluss".~~ **Geschlossen** durch
+`crates/mcp-reader/tests/lexicon_projection.rs` (offline, läuft in jeder `cargo test`-Runde):
+Die Vollständigkeits-Matrix ordnet jede der 47 Lexikon-IDs genau einem Zustand zu
+(21 `Projected` / 26 `Excluded` mit Begründung); registrierte Composite-Tools ohne
+Lexikon-Primitiv (aktuell nur `compare_versions`) stehen in der `COMPOSITE_TOOLS`-Allowlist.
+Der Test wird rot, sobald ein neues Lexikon-Primitiv ohne Zuordnung oder ein nicht verbuchtes
+Tool dazukommt — Lücken wie G-1/G-2 können so nicht mehr unbemerkt entstehen. Zugleich sind die
+G-2-Primitive nun **explizit** als `Excluded` verbucht (Nutzwert-Lücke, bewusst zurückgestellt;
+`CHK-*` als dauerhafter RAG-Ausschluss).
 
 ### G-5 — Live-Konformanz: wöchentlich, ohne Alarm (kleine Härtung)
 

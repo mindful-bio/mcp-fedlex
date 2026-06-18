@@ -146,21 +146,40 @@ Schliesst die Discovery-Lücke der MCP-Oberfläche (siehe `40_FINDINGS.md`, ADR-
 jolux-Primitive existieren und sind live-getestet; hier entsteht nur die dünne Tool-Projektion
 plus die strukturelle Hinweis/Beleg-Trennung.
 
-- [ ] `Provenance::Hint` (bzw. `kind`-Feld) in `fedlex-core`, im Wire-Format als `"hint"` vs.
+- [x] `Provenance::Hint` (bzw. `kind`-Feld) in `fedlex-core`, im Wire-Format als `"hint"` vs.
       `"norm"` unterscheidbar; `QueryStamp` kann eine Hinweis-Provenance je Treffer-ELI bilden.
-- [ ] `ToolPool::Discovery` in `mcp-reader`, RBAC. `Reader` ohne, `Navigator`/`Validator` mit
+- [x] `ToolPool::Discovery` in `mcp-reader`, RBAC. `Reader` ohne, `Navigator`/`Validator` mit
       Discovery (ADR-006).
-- [ ] Drei `McpTool`-Wrapper über die Primitive. `search_law` (Titel/Stichwort),
+- [x] Drei `McpTool`-Wrapper über die Primitive. `search_law` (Titel/Stichwort),
       `resolve_sr_number` (SR-Nummer), `find_related_topic` (ELI → thematisch verwandt). Jeder
       Treffer trägt seine eigene Hinweis-Provenance (ADR-004 „Listen/Aggregate").
-- [ ] `register_discovery_tools` analog `register_navigation_tools`, verdrahtet im Reader-Binary
+- [x] `register_discovery_tools` analog `register_navigation_tools`, verdrahtet im Reader-Binary
       gegen `HttpSparqlClient::fedlex()`.
-- [ ] Pool-abhängiges Quota-Cost-Gewicht. `Discovery` schwerer als `LocalNavigation`,
+- [x] Pool-abhängiges Quota-Cost-Gewicht. `Discovery` schwerer als `LocalNavigation`,
       claim-gebunden (ADR-002/ADR-006 F-5).
-- [ ] **Test-Nachweis.** `tools/list` listet Discovery rollenabhängig (Reader ohne); Dispatch-Test
+- [x] **Test-Nachweis.** `tools/list` listet Discovery rollenabhängig (Reader ohne); Dispatch-Test
       zeigt Hinweis-Provenance im Wire-Format (`kind: "hint"`); Test der Discovery→Beleg-Kette
       (Treffer-ELI ist anschliessend von `get_metadata`/`read_article` auflösbar); Quota-Test, dass
       ein Discovery-Call mehr Tokens bucht als ein Navigationscall.
+
+## M12 — JOLux-Metadaten-Tools (`mcp-reader`)
+
+Projiziert die belegfähige JOLux-Metadaten-Schicht als MCP-Tools (ADR-007, schliesst G-1 aus
+`45_GAP_ANALYSIS.md`). Eigener Pool `ToolPool::JoluxMetadata`, Quota-Gewicht gleich Discovery,
+Norm-Provenance je Tool. Verdrahtet in `main.rs` via `register_metadata_tools`.
+
+- [x] Tranche A — Temporal. `check_in_force`, `list_versions`, `resolve_consolidation_at`.
+- [x] Tranche B — Beziehungen. `get_impacts`, `get_outgoing_impacts`, `get_article_history`,
+      `get_citations` (eID-Normalisierung J18.2, `(from,to)`-Dedup J7.4, `direction`).
+- [x] Tranche C — Einordnung. `get_taxonomy`, `get_subdivisions`, `list_annexes` (Sprach-Filter,
+      optionaler `type_uri`-Filter, Annex-Spezialfall JLX-SUB-02).
+- [ ] Tranche D — Kontext (optional/nachrangig). `treaties`, `genesis`, `publication`,
+      `vocabulary` — nur bei belegtem ansV-Bedarf projizieren.
+- [x] Vollständigkeits-Matrix als Rückfall-Schutz (Roadmap Schritt 3), verankert in
+      `crates/mcp-reader/tests/lexicon_projection.rs` (47 IDs → 21 projiziert / 26 begründet
+      ausgeschlossen + 1 Composite ⇒ 22 registrierte Tools).
+- [x] **Test-Nachweis.** `cargo test -p mcp-reader` grün (inkl. `lexicon_projection`); pro Tool
+      `tools/list` rollenabhängig, Dispatch mit Norm-Provenance im Wire-Format.
 
 ---
 
@@ -183,7 +202,7 @@ plus die strukturelle Hinweis/Beleg-Trennung.
 | Lücke B Oxigraph | erledigt | 6 Tests grün (Feature oxigraph-store), eingebetteter In-Process-Oxigraph. Bi-temporale Punkt-in-Zeit-Aufloesung, Korrektur per Transaktionszeit ohne Historienverlust, Append-only-Zaehler, SPARQL-Injection-Schutz |
 | M10 Härtung | teilweise | Health-Endpunkte (5 Tests), Server-Komposition mit echtem Socket (3 Tests) und Cache-Warmup gegen Stampede (5 Tests) erledigt. K8s-Manifeste in `k3-infra` (Reader-Deployment mit drei Proben, Redis, Default-Deny-NetworkPolicy, Argo-Application), client-validiert. mTLS, durabler Korpus mit Backup/Restore und Schema-Versionierung bleiben Infra ohne cargo-test-Beweis |
 | Schreib- trifft Lesepfad | erledigt | CorpusSink fehlbar gemacht (Store-Fehler ueber Retry/DLQ statt stiller Verlust). OxigraphCorpusSink-Adapter (Feature oxigraph-store) schreibt in denselben bi-temporalen Korpus, aus dem der Reader punkt-in-zeit aufloest. 1 neuer Writer-Fehlerpfad-Test, 4 Adapter-Tests gruen |
-| M11 Discovery & Hinweis-Provenance | offen | Plan festgehalten (ADR-006, `40_FINDINGS.md`). Schliesst die Discovery-Lücke der MCP-Oberfläche (search_law/resolve_sr_number/find_related_topic + Hinweis-Provenance + Discovery-Pool). Noch kein Code |
+| M11 Discovery & Hinweis-Provenance | erledigt | Discovery-Pool (search_law/resolve_sr_number/find_related_topic), Hinweis-Provenance (`kind: "hint"`), RBAC + Quota-Gewicht. In `main.rs` via `register_discovery_tools` verdrahtet; Tests grün |
+| M12 JOLux-Metadaten-Tools | erledigt (Tranche A–C) | Tranche A/B/C als `ToolPool::JoluxMetadata` projiziert (10 Tools, Norm-Provenance), via `register_metadata_tools` verdrahtet; G-1 geschlossen. Vollständigkeits-Matrix in `lexicon_projection.rs`. Tranche D (treaties/genesis/publication/vocabulary) bewusst zurückgestellt |
 
 Status je Zeile wird auf `erledigt` gesetzt, sobald der zugehörige Test-Nachweis grün ist.
-
