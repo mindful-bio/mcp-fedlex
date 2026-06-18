@@ -141,12 +141,9 @@ mod tests {
 
     #[test]
     fn debug_redacts_key_material() {
-        let cfg = RedisTlsConfig::from_pem(
-            "ca-bytes",
-            "cert-bytes",
-            "SUPER-SECRET-PRIVATE-KEY",
-        )
-        .unwrap();
+        let cfg =
+            RedisTlsConfig::from_pem("ca-bytes", "cert-bytes", "SUPER-SECRET-PRIVATE-KEY").unwrap();
+
         let rendered = format!("{cfg:?}");
         assert!(
             !rendered.contains("SUPER-SECRET-PRIVATE-KEY"),

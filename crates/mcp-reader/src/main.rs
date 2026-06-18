@@ -127,9 +127,11 @@ fn build_quota_backend(redis_url: &str) -> Result<RedisQuotaBackend, Box<dyn std
             );
             Ok(backend)
         }
-        _ => Err("MCP_REDIS_TLS_{CA,CERT,KEY}_FILE müssen gemeinsam gesetzt sein \
+        _ => Err(
+            "MCP_REDIS_TLS_{CA,CERT,KEY}_FILE müssen gemeinsam gesetzt sein \
                   (mTLS braucht CA, Client-Zert und Schlüssel)"
-            .into()),
+                .into(),
+        ),
     }
 }
 
