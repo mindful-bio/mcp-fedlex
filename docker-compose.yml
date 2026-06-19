@@ -1,0 +1,44 @@
+# mcp-fedlex — lokaler Ein-Befehl-Start.
+#
+#   cp .env.example .env      # einmalig: Dev-Token & Co. setzen
+#   docker compose up --build # Reader + Redis hochfahren
+#
+# Danach lauscht der Reader auf http://localhost:8080 (JSON-RPC unter /rpc,
+# SSE unter /sse, Health unter /livez /readyz /startupz).
+#
+# Dies ist ein ENTWICKLUNGS-Setup: Redis spricht Klartext im internen
+# compose-Netz, Auth läuft über MCP_DEV_TOKEN. Für Produktion siehe
+# docs/80_DEPLOY.md (Kubernetes, JWT/JWKS, Redis-mTLS).
+
+services:
+  redis:
+    image: redis:7-alpine
+    # Kein Port-Mapping nach aussen: Redis ist nur im compose-Netz erreichbar.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  reader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcp-fedlex-reader:local
+    env_file: .env
+    environment:
+      # Im compose-Netz heisst der Redis-Host `redis`. Überschreibt einen evtl.
+      # auf 127.0.0.1 gesetzten Wert aus der .env, damit der Container Redis findet.
+      REDIS_URL: redis://redis:6379
+      BIND_ADDR: 0.0.0.0:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Kein in-Container-Healthcheck: das Reader-Image ist distroless (kein
+    # wget/curl/shell). Liveness von aussen prüfen:
+    #   curl -s http://localhost:8080/livez
+    # oder den Smoke-Test laufen lassen:  scripts/smoke.sh http://localhost:8080 <token>
+
