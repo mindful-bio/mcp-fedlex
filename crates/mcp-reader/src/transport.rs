@@ -18,7 +18,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{header::AUTHORIZATION, HeaderMap};
+use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
+
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
@@ -319,10 +320,23 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                 )
             }
 
+            // `ping` (Lifecycle, Ziel-Revision): echte Request/Response mit `id`,
+            // leeres Result-Objekt. Hält die Verbindung ohne Seiteneffekt am
+            // Leben (Runbook 5.2).
+            "ping" => JsonRpcResponse::ok(req.response_id(), json!({})),
+
+            // `notifications/initialized` (Lifecycle, SHOULD→MUST): als
+            // **Notification** trägt sie kein `id` und wird im HTTP-Handler bereits
+            // mit 202/no-body quittiert (Runbook 5.1). Schickt ein Client sie
+            // dennoch als Request (mit `id`), behandeln wir sie spec-konform als
+            // No-op mit leerem Result statt als unbekannte Methode.
+            "notifications/initialized" => JsonRpcResponse::ok(req.response_id(), json!({})),
+
             "tools/list" => JsonRpcResponse::ok(
                 req.response_id(),
                 json!({ "tools": self.registry.list_tools(claims.role()) }),
             ),
+
 
             "tools/call" => {
                 // Tool-Namen ZUERST bestimmen, damit das Quota-Gewicht
@@ -462,9 +476,21 @@ where
             .into_response();
         }
     };
+    // Notifications (JSON-RPC ohne `id`) bekommen **keine** Antwort-Hülle:
+    // JSON-RPC schreibt vor, dass der Server auf Notifications NICHT antwortet.
+    // Streamable HTTP (Ziel-Revision) bildet das als **HTTP 202 Accepted ohne
+    // Body** ab (Runbook 5.1). `notifications/initialized` ist serverseitig ein
+    // No-op; wir quittieren nur den Empfang. Auth wird hier bewusst nicht
+    // erzwungen — eine Notification trägt kein Ergebnis, das geschützt werden
+    // müsste, und ein Fehlerkörper wäre spec-widrig.
+    if req.is_notification() {
+        return StatusCode::ACCEPTED.into_response();
+    }
+
     let cred = bearer(&headers);
     Json(svc.handle(cred.as_deref(), req, now_ms()).await).into_response()
 }
+
 
 /// GET `/sse`. Eröffnet den Ereignis-Strom und nennt die POST-Adresse.
 ///
@@ -998,6 +1024,38 @@ mod tests {
             .await;
         assert_eq!(resp.error.unwrap().code, codes::METHOD_NOT_FOUND);
     }
+
+    // --- Lifecycle: ping (Migrations-Runbook Phase 5.2) ---
+
+    #[tokio::test]
+    async fn ping_returns_empty_result_echoing_id() {
+        // `ping` ist ein echter Request: leeres Result-Objekt, kein Fehler,
+        // Korrelations-Id wird gespiegelt.
+        let svc = service(MockBackend::allowing());
+        let resp = svc
+            .handle(Some("token-a"), req(99, "ping", json!({})), 0)
+            .await;
+        assert!(resp.error.is_none(), "ping darf keinen Fehler liefern");
+        assert_eq!(resp.result.unwrap(), json!({}));
+        assert_eq!(resp.id, json!(99));
+    }
+
+    #[tokio::test]
+    async fn initialized_notification_as_request_is_noop_not_unknown() {
+        // Schickt ein Client `notifications/initialized` doch mit `id`, ist es
+        // ein spec-konformer No-op (leeres Result), KEIN METHOD_NOT_FOUND.
+        let svc = service(MockBackend::allowing());
+        let resp = svc
+            .handle(
+                Some("token-a"),
+                req(1, "notifications/initialized", json!({})),
+                0,
+            )
+            .await;
+        assert!(resp.error.is_none());
+        assert_eq!(resp.result.unwrap(), json!({}));
+    }
+
 
     // --- Notification vs. Request (Migrations-Runbook Phase 5.1) ---
 

@@ -1,10 +1,13 @@
-//! Protokoll-Versions-Negotiation (Migrations-Runbook Phase 2, ADR-008).
+//! Protokoll-Versions-Negotiation (Migrations-Runbook Phase 2/6, ADR-008).
 //!
-//! Heute handelt der Reader genau eine Revision aus: `2024-11-05`. Diese Schicht
-//! macht die Aushandlung **explizit und erweiterbar**, **ohne** das Verhalten für
-//! Alt-Clients zu ändern. Die Menge der echt unterstützten Versionen
+//! Der Reader bedient zwei Revisionen: die historische `2024-11-05` (für
+//! Negotiation mit explizit nachfragenden Alt-Clients) und — als **Default** —
+//! die Ziel-Revision **`2025-11-25`**. Diese Schicht macht die Aushandlung
+//! **explizit und erweiterbar**. Die Menge der echt unterstützten Versionen
 //! ([`SUPPORTED_PROTOCOL_VERSIONS`]) wächst erst, wenn die jeweilige Revision
-//! tatsächlich implementiert und getestet ist — Capabilities bleiben ehrlich.
+//! tatsächlich implementiert und getestet ist (Lifecycle: `initialize`,
+//! `notifications/initialized`, `ping`) — Capabilities bleiben ehrlich.
+
 //!
 //! Negotiation-Regeln (Runbook 2.2):
 //! - Client nennt eine **unterstützte** Version → diese wird ausgehandelt.
@@ -21,14 +24,20 @@
 /// `initialize`-Handshake und die Konsistenztests.
 ///
 /// Wächst pro Migrationsphase, **erst nachdem** die Revision implementiert und
-/// getestet ist (kein vorauseilendes „Support"-Versprechen).
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05"];
+/// getestet ist (kein vorauseilendes „Support"-Versprechen). Beide Einträge
+/// sind durch den vollständigen Lifecycle (`initialize`/`notifications/
+/// initialized`/`ping`) gedeckt; `2024-11-05` bleibt nur für die Aushandlung
+/// mit explizit nachfragenden Alt-Clients.
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05", "2025-11-25"];
 
-/// Die ausgehandelte Default-Version, wenn der Client keine nennt. Bewusst
-/// weiterhin `2024-11-05`, damit der heutige (handshake-lose) ansV-Client
-/// unverändert läuft. Per [`default_protocol_version`] aus der Umgebung
-/// überschreibbar (Runbook 2.3).
-pub const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+/// Die ausgehandelte Default-Version, wenn der Client keine nennt. Auf die
+/// Ziel-Revision `2025-11-25` gehoben (Runbook Phase 6). Die handshake-losen
+/// Clients (ansV, syllogismus-fedlex) lesen `protocolVersion` nicht aus und
+/// bleiben unberührt; explizit nachfragende Clients erhalten weiterhin die von
+/// ihnen genannte unterstützte Version. Per [`default_protocol_version`] aus der
+/// Umgebung überschreibbar (Runbook 2.3), z. B. Rollback auf `2024-11-05`.
+pub const DEFAULT_PROTOCOL_VERSION: &str = "2025-11-25";
+
 
 /// Die höchste tatsächlich unterstützte Revision (letztes Element der sortierten
 /// Liste). Antwort auf unbekannte/zu neue Client-Versionen.
@@ -133,7 +142,6 @@ pub fn classify_protocol_header(header: Option<&str>) -> ProtocolHeaderOutcome {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,13 +167,19 @@ mod tests {
 
     #[test]
     fn highest_is_the_last_entry() {
-        assert_eq!(highest_supported(), *SUPPORTED_PROTOCOL_VERSIONS.last().unwrap());
+        assert_eq!(
+            highest_supported(),
+            *SUPPORTED_PROTOCOL_VERSIONS.last().unwrap()
+        );
     }
 
     #[test]
     fn missing_client_version_yields_default() {
         // Heutiger ansV-Fall: kein protocolVersion im initialize.
-        assert_eq!(negotiate(None, DEFAULT_PROTOCOL_VERSION), DEFAULT_PROTOCOL_VERSION);
+        assert_eq!(
+            negotiate(None, DEFAULT_PROTOCOL_VERSION),
+            DEFAULT_PROTOCOL_VERSION
+        );
     }
 
     #[test]
@@ -195,13 +209,19 @@ mod tests {
     fn header_absent_is_backward_compatible_not_an_error() {
         // Kern der Reconciliation 3.1↔6: fehlender Header darf die heutigen
         // Alt-Clients (ansV, syllogismus-fedlex) NICHT brechen.
-        assert_eq!(classify_protocol_header(None), ProtocolHeaderOutcome::Absent);
+        assert_eq!(
+            classify_protocol_header(None),
+            ProtocolHeaderOutcome::Absent
+        );
     }
 
     #[test]
     fn header_empty_or_whitespace_is_treated_as_absent() {
         // Ein leerer/whitespace-Header ist faktisch keine Angabe → kein 400.
-        assert_eq!(classify_protocol_header(Some("")), ProtocolHeaderOutcome::Absent);
+        assert_eq!(
+            classify_protocol_header(Some("")),
+            ProtocolHeaderOutcome::Absent
+        );
         assert_eq!(
             classify_protocol_header(Some("   ")),
             ProtocolHeaderOutcome::Absent
@@ -238,4 +258,3 @@ mod tests {
         );
     }
 }
-
