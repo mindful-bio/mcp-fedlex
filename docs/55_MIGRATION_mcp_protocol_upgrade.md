@@ -100,10 +100,14 @@ schriftlich fixiert, Konsumenten-Inventar (2 Clients) + Abbruchkriterien verifiz
       `serverInfo.name`). **Grün** in `crates/mcp-reader/tests/protocol_baseline.rs`
       (`initialize_handshake_is_frozen_at_2024_11_05`). *(2026-06-20)*
 - [x] **1.2 Methoden-Snapshot.** Test, der die exakte Antwortform von `tools/list`
-      (Eintragsform `{name, schema}` — **nicht** `inputSchema`) und eines `tools/call`
-      (inkl. `provenance`-Block) fixiert, plus fail-closed-Invarianten (fehlendes/ungültiges
-      Credential → −32001, unbekannte Methode → −32601). **Grün** in
+      und eines `tools/call` (inkl. `provenance`-Block) fixiert, plus fail-closed-Invarianten
+      (fehlendes/ungültiges Credential → −32001, unbekannte Methode → −32601). **Grün** in
       `protocol_baseline.rs` (6 Tests). *(2026-06-20)*
+      > **Aktualisiert (2026-06-20, Phase 7.2a):** Die Eintragsform war ursprünglich auf
+      > `{name, schema}` (**nicht** `inputSchema`) eingefroren. Nach dem additiven Wire-Delta
+      > prüft 1.2 nun, dass **beide** Schlüssel präsent sind (`inputSchema` **und** `schema`)
+      > **und denselben Wert tragen**. Der Legacy-Schlüssel fällt erst in Phase 9.
+
 - [x] **1.3 Konsumenten-Vertragstests grün stellen — vollständig (Live-Lauf 2026-06-20).**
       Offline-Teil **erledigt & re-verifiziert**:
       - **Konsument 1 (ansV):** `cargo test -p ansv-fedlex` grün — **22 Unit + 2 E2E-Mock**
@@ -340,12 +344,17 @@ abgleichen, **ohne** fail-closed aufzuweichen.
       `initialize` + Negotiation im Client ergänzen (`ansv-fedlex/src/client.rs`).
 - [ ] **7.2 Mock & Live-Tests anpassen.** `e2e_belegkette.rs`-Mock und `live.rs` auf neuen
       Handshake/Transport erweitern; beide grün.
-- [ ] **7.2a `inputSchema`-Feld in ansV nachziehen (verifiziert nötig, 2026-06-20).**
-      `tool_def_from_mcp` (`ansv-fedlex/src/llm.rs`) liest heute **nur** `entry.get("schema")`
-      und reicht es als LLM-`parameters` (inkl. `description`) durch. Bevor der Reader in Phase 9
-      den Alt-Feldnamen `schema` entfernt, muss ansV **beide** Felder lesen — `inputSchema`
-      bevorzugt, `schema` als Fallback —, sonst werden `parameters` zu `null` und das Modell
-      verliert alle Argument-Schemata. (syllogismus-fedlex unkritisch: ruft nie `tools/list`.)
+- [x] **7.2a `inputSchema`-Feld additiv umgesetzt — erledigt (2026-06-20).**
+      **Server:** `registry.rs::list_tools` emittiert pro Tool jetzt **beide** Schlüssel mit
+      demselben Wert — `inputSchema` (MCP-Standard) **und** `schema` (Legacy) — als additiven
+      Doppel-Output. Baseline-Test 1.2 (`protocol_baseline.rs`) prüft Präsenz beider Felder und
+      ihre Wertgleichheit.
+      **Client:** `tool_def_from_mcp` (`ansv-fedlex/src/llm.rs`) liest nun **`inputSchema` bevorzugt,
+      `schema` als Fallback** (forward- & backward-kompatibel); zwei Unit-Tests sichern beide Pfade.
+      Der E2E-Mock (`e2e_belegkette.rs`) spiegelt die echte Doppel-Form. Damit ist der Alt-Feldname
+      `schema` erst in **Phase 9** gefahrlos entfernbar. (syllogismus-fedlex unkritisch: ruft nie
+      `tools/list`.)
+
 - [ ] **7.3 Staging-Lauf.** Voller Gutachten-Lauf (`examples/gutachten.rs` / Analyse-SSE) gegen
       die migrierte Reader-Instanz; `provenance` und Belegkette unverändert korrekt.
 - [ ] **7.4 Reihenfolge wahren.** ansV-Deploy **vor** Server-Default-Flip (6.2), wenn der Flip

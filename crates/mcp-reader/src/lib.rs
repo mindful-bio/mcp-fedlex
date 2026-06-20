@@ -28,6 +28,7 @@ pub mod lod_gateway;
 pub mod metadata;
 
 pub mod probes;
+pub mod protocol;
 pub mod quota;
 pub mod registry;
 pub mod sandbox;
@@ -53,6 +54,10 @@ pub use lod_gateway::{
 pub use metadata::register_metadata_tools;
 
 pub use probes::{QuotaBackendProbe, SparqlProbe};
+pub use protocol::{
+    default_protocol_version, highest_supported, is_supported, negotiate, DEFAULT_PROTOCOL_VERSION,
+    SUPPORTED_PROTOCOL_VERSIONS,
+};
 pub use quota::{Decision, QuotaBackend, QuotaError, QuotaPolicy, RateLimiter, RedisQuotaBackend};
 pub use registry::Registry;
 pub use sandbox::{SandboxError, SearchSandbox};

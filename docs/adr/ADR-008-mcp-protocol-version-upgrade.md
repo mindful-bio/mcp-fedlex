@@ -1,10 +1,15 @@
 # ADR-008: MCP-Protokollversion — Upgrade & Versions-Negotiation
 
-- **Status:** Proposed — Migrationsplan, noch nicht umgesetzt
-- **Datum:** 2026-06-20
+- **Status:** Proposed — §A (Spec-Recherche) erledigt; §B/§C noch nicht umgesetzt
+- **Datum:** 2026-06-20 (§A aktualisiert 2026-06-20)
 - **Kontext-Artefakt:** `crates/mcp-reader/src/transport.rs` (Handshake), `likec4/`
-- **Betrifft:** `mcp-fedlex` (Reader), alle MCP-Clients (Agenten, Claude Desktop, ansV)
+- **Betrifft:** `mcp-fedlex` (Reader), alle MCP-Clients (Agenten, Claude Desktop, ansV,
+  syllogismus-fedlex) — die beiden Rust-Konsumenten ansV (`ansv-fedlex::McpClient`) und
+  syllogismus-fedlex (`McpFedlexClient`) rufen heute beide `/rpc` ohne `initialize`
+  (Konsumenten-Inventar: Runbook 55, Phase 0.4)
+- **Ziel-Revision:** **`2025-11-25`** (höchste stabile MCP-Spec-Revision; `2025-06-18` ist als Ziel ausgeschlossen)
 - **Folge-Release:** Ziel `v0.2.0` (siehe `CHANGELOG.md`)
+
 - **Operatives Runbook:** [`docs/55_MIGRATION_mcp_protocol_upgrade.md`](../55_MIGRATION_mcp_protocol_upgrade.md)
   — Phasen 0–9 mit Gates & Rollback je Schritt (extrem-vorsichtige Ausführung)
 
@@ -25,10 +30,11 @@ Spec-Revisionen erhalten. Eine veraltete ausgehandelte Version bedeutet:
    einen vereinheitlichten HTTP-Transport und ein klareres Auth-Modell ein,
    die unsere `/sse`+`/rpc`-Kante direkt betreffen.
 
-Wichtig für die Substanz dieses ADR: Die **exakten Deltas der Ziel-Revision sind
-zum Zeitpunkt des Schreibens nicht aus erster Hand verifiziert.** Dieser Plan
-definiert deshalb ZUERST einen Rechercheschritt (§A) gegen die offizielle
-Quelle und erst DANN die Umsetzung. Kein String wird „blind" hochgesetzt.
+Wichtig für die Substanz dieses ADR: Der Rechercheschritt (§A) ist **erledigt**
+und die Deltas sind **aus erster Hand gegen die offizielle Spec verifiziert**
+(siehe Delta-Matrix in §A). **Ziel-Revision ist `2025-11-25`.** Erst auf dieser
+Grundlage folgt die Umsetzung (§B/§C). Kein String wurde „blind" hochgesetzt.
+
 
 ## Heutiger Ist-Zustand (verifiziert im Code)
 
@@ -65,19 +71,125 @@ Negotiation nach Spec-Vorgabe** ein und richten die Implementierung an der
 - **Kein Feature ohne Test.** Jede neu beanspruchte Capability bekommt einen
   Konformanztest, sonst wird sie nicht angekündigt.
 
-## §A — Spec-Recherche (Gate, MUSS zuerst)
+## §A — Spec-Recherche (Gate, MUSS zuerst) — ✅ ERLEDIGT (2026-06-20)
 
 Ohne diesen Schritt geht keine Code-Änderung live.
 
-- [ ] **A-1 Offizielle Quelle ziehen.** Aktuelle Revisionsliste + Changelog von
-      `modelcontextprotocol.io` (Specification + `schema/` im
-      `modelcontextprotocol`-Repo). Die höchste stabile Revision bestimmen
-      (Kandidaten u. a. `2025-03-26`, `2025-06-18`, ggf. neuere).
-- [ ] **A-2 Delta-Matrix erstellen.** Pro Revision ab `2024-11-05`: was ist neu,
-      geändert, **deprecated**, **breaking**. Tabelle in dieses ADR übernehmen.
-- [ ] **A-3 Betroffenheit markieren.** Jede Delta-Zeile auf unseren Footprint
-      (§Ist-Zustand) abbilden: betrifft uns / optional / irrelevant.
-- [ ] **A-4 Ziel-Revision festlegen** und in `CHANGELOG.md` (`v0.2.0`) vormerken.
+- [x] **A-1 Offizielle Quelle gezogen.** Aus dem offiziellen Repo
+      `modelcontextprotocol/modelcontextprotocol` (`docs/specification/`) sind die
+      **stabilen Revisionen** verifiziert: `2024-11-05`, `2025-03-26`,
+      `2025-06-18`, **`2025-11-25`** (plus `draft`). Quelle pro Revision:
+      `changelog.mdx`, `basic/transports.mdx`, `basic/lifecycle.mdx` (first-hand
+      via `raw.githubusercontent.com`, abgerufen 2026-06-20).
+- [x] **A-2 Delta-Matrix erstellt** (siehe unten) — pro Revision ab `2024-11-05`
+      mit Klassifikation `NEU | GEÄNDERT | DEPRECATED | BREAKING`.
+- [x] **A-3 Betroffenheit markiert** — jede Zeile auf den §Ist-Zustand abgebildet:
+      `betrifft uns | optional | irrelevant`.
+- [x] **A-4 Ziel-Revision festgelegt: `2025-11-25`** (höchste stabile Revision),
+      in `CHANGELOG.md` (`Unreleased` → `v0.2.0`) vorgemerkt.
+
+### A-4 Ziel-Revision — Entscheidung
+
+> **Ziel ist `2025-11-25`.** Es wird **direkt** auf die höchste stabile Revision
+> migriert. Die Zwischenrevision **`2025-06-18` ist als Ziel ausgeschlossen** —
+> sie erscheint hier nur als Wegpunkt in der Changelog-Kette, niemals als
+> auszuhandelnder Wert. Ebenso wird `draft` bewusst gemieden (kein stabiler
+> Provenance-Anker). Die ehrliche Provenance-Regel (ADR-004) bleibt: ausgehandelte
+> Version == README-Badge == ADR-Ziel == Konformanztest == **`2025-11-25`**.
+
+### A-2/A-3 Delta-Matrix (verifiziert, gegen unseren Footprint gemappt)
+
+**Lesehilfe Betroffenheit:** _betrifft uns_ = erfordert Code/Doku-Arbeit;
+_optional_ = Feature, das wir bewusst übernehmen oder begründet ausschliessen;
+_irrelevant_ = berührt unseren Footprint (3 Methoden, `tools`-Capability, HTTP)
+nicht.
+
+#### Revision `2025-03-26` (gegen `2024-11-05`)
+
+| # | Änderung | Klasse | Betroffenheit |
+|---|---|---|---|
+| 1 | OAuth-2.1-Authorization-Framework | NEU | **betrifft uns** (Auth-Mapping §B-3; unser Bearer/JWT bleibt fail-closed, ADR-002) |
+| 2 | **Streamable HTTP** ersetzt HTTP+SSE | DEPRECATED/**BREAKING** | **betrifft uns** (Transport §B-2; Kernstück der Migration) |
+| 3 | JSON-RPC-Batching | NEU | irrelevant (in `2025-06-18` wieder entfernt; nie implementiert) |
+| 4 | Tool-Annotations (read-only/destructive …) | NEU | optional (unsere Tools sind read-only → ehrlich annotierbar) |
+| 5 | `message`-Feld in `ProgressNotification` | NEU | irrelevant (keine Progress-Notifications) |
+| 6 | Audio-Content-Type | NEU | irrelevant |
+| 7 | `completions`-Capability | NEU | irrelevant (kein Completion-Support) |
+
+#### Revision `2025-06-18` (gegen `2025-03-26`) — nur Wegpunkt, **kein Ziel**
+
+| # | Änderung | Klasse | Betroffenheit |
+|---|---|---|---|
+| 1 | JSON-RPC-Batching **entfernt** | GEÄNDERT | irrelevant (nie implementiert) |
+| 2 | Strukturierte Tool-Outputs (`structuredContent`) | NEU | optional (§B-6 abwägen; unser `provenance`-Block bleibt führend) |
+| 3 | Server als **OAuth Resource Server** + Protected-Resource-Metadata | NEU | **betrifft uns** (Auth §B-3, additiv) |
+| 4 | Resource Indicators (RFC 8707) als **Client**-Pflicht | NEU | irrelevant (client-seitig; wir sind Server) |
+| 5 | Security-Considerations + Best-Practices-Seite | GEÄNDERT | **betrifft uns** (Doku/SECURITY.md abgleichen) |
+| 6 | **Elicitation** | NEU | optional (**bewusst ausschliessen** — read-only Reader, analog Lexikon-Projektion) |
+| 7 | Resource-Links in Tool-Ergebnissen | NEU | optional (begründet ausschliessen, kein `resources`) |
+| 8 | **`MCP-Protocol-Version`-Header** auf Folge-Requests (HTTP) Pflicht | NEU/**BREAKING** | **betrifft uns** (Transport §B-2; siehe Header-Regel unten) |
+| 9 | Lifecycle-Operation **SHOULD→MUST** | GEÄNDERT | **betrifft uns** (Lifecycle §B-4) |
+| 10 | `_meta`-Feld an weiteren Typen | NEU | optional |
+| 11 | `context`-Feld in `CompletionRequest` | NEU | irrelevant (kein Completion) |
+| 12 | `title`-Feld (Anzeigename neben `name`) | NEU | optional (Tool-Titel; nutzwertig, geringer Aufwand) |
+
+#### Revision `2025-11-25` (gegen `2025-06-18`) — **ZIEL**
+
+| # | Änderung | Klasse | Betroffenheit |
+|---|---|---|---|
+| 1 | OIDC-Discovery 1.0 für Authorization-Server | NEU | optional (Auth; nur falls wir AS-Discovery anbieten) |
+| 2 | **Icons** als Metadaten für Tools/Resources/Prompts | NEU | optional |
+| 3 | Inkrementeller Scope-Consent via `WWW-Authenticate` | NEU | optional (Auth) |
+| 4 | Guidance zu Tool-Namen | GEÄNDERT | optional (unsere Namen prüfen) |
+| 5 | `ElicitResult`/`EnumSchema` standardnäher | GEÄNDERT | irrelevant (keine Elicitation) |
+| 6 | URL-Mode-Elicitation | NEU | irrelevant (keine Elicitation) |
+| 7 | Tool-Calling in Sampling (`tools`/`toolChoice`) | NEU | irrelevant (Client-Capability) |
+| 8 | OAuth Client-ID-Metadata-Documents | NEU | optional (client-/Auth-seitig) |
+| 9 | **Tasks** (experimentell, durable requests) | NEU | optional (**bewusst ausschliessen** — kein Bedarf) |
+| 10 | stderr-Logging-Klarstellung (stdio) | GEÄNDERT | irrelevant (wir nutzen HTTP, nicht stdio) |
+| 11 | `Implementation.description` optional | NEU | optional (in `serverInfo` ergänzbar) |
+| 12 | **HTTP 403** bei ungültigem `Origin`-Header (Streamable HTTP) | GEÄNDERT | **betrifft uns** (Transport-Security §B-2) |
+| 13 | Input-Validation-Fehler als **Tool-Execution-Error** statt Protocol-Error | GEÄNDERT | **betrifft uns (teilweise positiv)** — Tool-**Dispatch**-Fehler sind bereits graceful `{ error, hint }` im `result` (ADR-006); **aber** zwei `tools/call`-Validierungspfade liefern noch Protocol-Error `-32602` (s. §B-5-Notiz) |
+| 14 | Polling-SSE-Streams / SEP-1699-Klarstellungen | GEÄNDERT | optional |
+| 15 | `WWW-Authenticate` optional + `.well-known`-Fallback (RFC 9728) | GEÄNDERT | optional (Auth) |
+| 16 | Default-Werte in Elicitation-Schemas | NEU | irrelevant |
+| 17 | **JSON Schema 2020-12** als Default-Dialekt | GEÄNDERT | **betrifft uns** (Tool-`inputSchema`-Dialekt prüfen) |
+| 18 | Request-Payloads von RPC-Method-Defs entkoppelt | GEÄNDERT | irrelevant (Schema-intern, kein Wire-Impact für uns) |
+
+### Zusammenfassung Betroffenheit (was §B konkret anfassen muss)
+
+1. **Transport (§B-2).** HTTP+SSE → **Streamable HTTP** (single MCP-Endpoint mit
+   POST+GET), **`MCP-Protocol-Version`-Header** auf Folge-Requests, **400** bei
+   ungültiger/unbekannter Protokollversion, **403** bei ungültigem `Origin`.
+   `/rpc` bleibt **additiv** erhalten (beide Konsumenten — ansV und
+   syllogismus-fedlex — rufen `/rpc` ohne `initialize`, siehe
+   Runbook 55_MIGRATION §0.4). — *grösster, breaking-naher Brocken.*
+2. **Handshake/Negotiation (§B-1).** `initialize`: Client sendet Version; Server
+   antwortet bei Support mit **derselben**, sonst mit eigener neuester. Single
+   Source of Truth: `SUPPORTED_PROTOCOL_VERSIONS`.
+3. **Auth (§B-3).** Resource-Server-Klassifikation + optional Protected-Resource-
+   Metadata/`WWW-Authenticate`/OIDC-Discovery — **additiv**, fail-closed (ADR-002)
+   unangetastet.
+4. **Lifecycle (§B-4).** `notifications/initialized` akzeptieren, `ping`
+   beantworten (SHOULD→MUST).
+5. **Schema/Capabilities (§B-5).** `tools`-Capability ehrlich; `inputSchema` auf
+   **JSON Schema 2020-12** prüfen; optional `title`/`description`/Tool-Annotations.
+6. **Bewusst ausgeschlossen (§B-6):** Elicitation, Resources/Prompts, Tasks,
+   strukturierte Outputs (vorerst), Icons, Sampling — begründet, analog der
+   Lexikon-Projektion (kein Feature ohne Bedarf und Test).
+
+> **Header-Regel (verifiziert, `2025-11-25`):** Fehlt der `MCP-Protocol-Version`-
+> Header, **SHOULD** der Server `2025-03-26` annehmen — das ist unsere additive
+> Brücke für den heutigen ansV-Pfad ohne `initialize`, bis Phase 6/7 (Runbook 55)
+> ansV nachzieht.
+>
+> **⚠ Reconciliation (zwei Fallback-Ebenen, in Phase 3↔6 abzustimmen):** Dieser
+> Header-Fallback (`2025-03-26`) ist **nicht** identisch mit dem Negotiation-Default
+> für eine fehlende **`initialize`-`protocolVersion`** (`2024-11-05`, B-1/Runbook 2.2–2.3).
+> Beide Ebenen — HTTP-Header **und** Handshake-Body — müssen beim Doppelpfad-Test
+> (Runbook 3.4) und beim Default-Flip (6.2) bewusst aufeinander abgestimmt werden,
+> sonst entsteht ein stiller Versions-Mismatch zwischen Transport- und Handshake-Ebene.
+
 
 ## §B — Umsetzung (nach §A)
 
@@ -95,8 +207,53 @@ Reihenfolge bewusst: Handshake → Transport → Auth → optionale Features.
       abgleichen; Lücken dokumentieren, fail-closed bleibt unverhandelbar.
 - [ ] **B-4 Lifecycle-Notifications.** `notifications/initialized` und `ping`
       ergänzen, falls die Ziel-Revision sie für Konformität verlangt.
+      > **⚠ Code-Vorprüfung (2026-06-20): Notification-Handling fehlt vollständig.**
+      > `JsonRpcRequest.id` ist `#[serde(default)] Value` → eine **Notification** (JSON-RPC ohne
+      > `id`) deserialisiert zu `id = Value::Null`, und `McpService::handle` gibt auf **jedem**
+      > Pfad eine `JsonRpcResponse` zurück. Für `notifications/initialized` (heute unbekannte
+      > Methode) wäre das ein **`-32601`-Error** — JSON-RPC 2.0 **und** MCP verlangen jedoch, dass
+      > auf Notifications (kein `id`) **gar keine** Antwort gesendet wird. **Folge:** B-4 muss (a)
+      > Notifications erkennen (fehlendes `id`-Feld vs. `id: null` sauber unterscheiden — dafür `id`
+      > als `Option<Value>` modellieren, da `#[serde(default)]` beide Fälle heute kollabiert) und
+      > (b) bei Notifications still bleiben (kein Response-Body). `ping` dagegen ist eine echte
+      > Request/Response (mit `id`) und nur ein zusätzlicher Match-Arm.
 - [ ] **B-5 Capabilities ehrlich deklarieren.** Nur ankündigen, was getestet ist;
       `tools`-Capability ggf. um Flags der neuen Revision erweitern.
+      > **Code-Vorprüfung (2026-06-20, entlastet B-5):**
+      > - **Schema-Dialekt (#17):** **kein** Tool deklariert `$schema`; alle `schema()`-Methoden
+      >   liefern reine `{"type":"object","properties":…,"description":…}`-Objekte
+      >   (`discovery.rs`, `metadata.rs`, `tools.rs`). Diese Konstrukte sind über alle
+      >   JSON-Schema-Drafts hinweg **identisch** → der 2020-12-Default bringt **kein Wire-Impact**,
+      >   nur eine optionale Klarstellung (ggf. `$schema` explizit setzen). Keine Migration nötig.
+      > - **Tool-Namen (#4):** durchgängig beschreibendes `snake_case` (`search_law`,
+      >   `read_article`, `get_metadata`, `resolve_consolidation_at`, …) → bereits guidance-konform,
+      >   **kein** Handlungsbedarf.
+      > - **⚠ Feldname `schema` statt `inputSchema` (Konformitätslücke, schon heute):** `tools/list`
+      >   emittiert pro Eintrag `{"name", "schema"}` (`registry.rs::list_tools`), während die
+      >   MCP-Spec über **alle** Revisionen **`inputSchema`** verlangt. Baseline-Test 1.2 friert das
+      >   abweichende Feld bewusst ein. **Folge:** Die Korrektur (`schema` → `inputSchema`) ist Teil
+      >   der Konformität, aber **breaking** für beide Alt-Clients, die heute `schema` lesen —
+      >   daher als **additiver Doppel-Output** (`inputSchema` *und* übergangsweise `schema`)
+      >   auszuliefern, parallel zur Transport-Migration (Phase 3/7), und erst in Phase 9 zu
+      >   bereinigen.
+      >   **Verifiziert (2026-06-20): ansV liest `schema` aktiv.** `tool_def_from_mcp`
+      >   (`ansv-fedlex/src/llm.rs`) zieht `entry.get("schema")` und reicht es als `parameters`
+      >   (inkl. `description`) der LLM-Function-Definition durch. Ein **Ersetzen** `schema`→`inputSchema`
+      >   ohne Übergang ergäbe bei ansV `parameters = null` → das Modell verlöre alle Argument-Schemata
+      >   und Tool-Beschreibungen. Der Doppel-Output ist damit **zwingend** (nicht optional);
+      >   syllogismus-fedlex ist unkritisch (ruft nur `tools/call`, nie `tools/list`). Die saubere
+      >   Endstufe verlangt zusätzlich ein ansV-Update, das **beide** Felder (`inputSchema` bevorzugt,
+      >   `schema` als Fallback) liest — **vor** der Phase-9-Bereinigung.
+      >
+      >   **✅ UMGESETZT (2026-06-20, Runbook 7.2a):** Der additive Doppel-Output ist live im Code.
+      >   **Server** (`registry.rs::list_tools`) emittiert pro Eintrag jetzt **`inputSchema` *und*
+      >   `schema`** mit identischem Wert; Baseline-Test 1.2 prüft Präsenz **und** Wertgleichheit
+      >   beider Felder. **Client** (`ansv-fedlex/src/llm.rs::tool_def_from_mcp`) liest
+      >   **`inputSchema` bevorzugt, `schema` als Fallback** (zwei Unit-Tests decken beide Pfade);
+      >   der E2E-Mock (`e2e_belegkette.rs`) spiegelt die Doppel-Form. Damit ist der Alt-Feldname
+      >   `schema` erst in **Phase 9** gefahrlos entfernbar — die Konformitätslücke ist additiv
+      >   geschlossen, ohne Alt-Clients zu brechen.
+
 - [ ] **B-6 Optionale Features bewerten.** Strukturierte Tool-Outputs,
       Elicitation, Resources/Prompts: pro Feature Nutzen vs. Aufwand; bewusst
       ausschliessen ist erlaubt (begründet, analog Lexikon-Projektion).

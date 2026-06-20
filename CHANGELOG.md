@@ -7,7 +7,28 @@ und das Projekt folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`tools/list` liefert nun `inputSchema` zusätzlich zu `schema`** (additiver
+  Doppel-Output, gleicher Wert). Der MCP-Standard verlangt über alle Revisionen
+  `inputSchema`; der Legacy-Schlüssel `schema` bleibt übergangsweise erhalten, bis
+  beide Konsumenten umgestellt sind, und fällt erst in Phase 9 (ADR-008 §B-5,
+  Runbook 55 Schritt 7.2a). Der Baseline-Test fixiert Präsenz und Wertgleichheit
+  beider Felder; bestehende Clients (ansV, syllogismus-fedlex) bleiben unberührt.
+
+### Geplant (v0.2.0)
+
+
+- **MCP-Protokoll-Upgrade auf `2025-11-25`** (höchste stabile Spec-Revision).
+  Spec-Recherche abgeschlossen (ADR-008 §A, Delta-Matrix gegen `2024-11-05`):
+  Versions-Negotiation statt hartcodierter Konstante, Streamable HTTP additiv
+  neben `/rpc`, `MCP-Protocol-Version`-Header, Lifecycle (`ping`/
+  `notifications/initialized`). Umsetzung folgt nach dem Runbook
+  `docs/55_MIGRATION_mcp_protocol_upgrade.md`. Bis `v0.2.0` bleibt der Handshake
+  ehrlich bei `2024-11-05`.
+
 ## [0.1.0] - 2026-06-20
+
 
 Erste getaggte Version. Der `mcp-reader` ist produktiv ausgerollt und gegen
 Fedlex live-konform getestet.

@@ -40,18 +40,34 @@ impl Registry {
     }
 
     /// `tools/list` für eine Rolle. Liefert nur Schemas der erlaubten Pools.
+    ///
+    /// **Wire-Form (ADR-008 §A, additive Migration):** Jeder Eintrag trägt das
+    /// Tool-Schema unter ZWEI Schlüsseln:
+    /// - `inputSchema` — der MCP-Standardschlüssel der Ziel-Revision 2025-11-25.
+    /// - `schema` — der historische Schlüssel dieses Readers (Alt-Client-Vertrag).
+    ///
+    /// Beide tragen denselben Wert. Das ist die Brücke der Migrations-Phase: neue
+    /// (standardkonforme) Clients lesen `inputSchema`, der handshake-lose Alt-Client
+    /// ansV liest weiterhin `schema` und bleibt unberührt. Der Legacy-Schlüssel
+    /// wird erst entfernt, wenn alle Clients umgestellt sind (Runbook Phase 9);
+    /// dieses Doppel-Emit ist bewusst temporär.
     pub fn list_tools(&self, role: Role) -> Vec<Value> {
         self.tools
             .values()
             .filter(|t| role_allows(role, t.pool()))
             .map(|t| {
+                let schema = t.schema();
                 json!({
                     "name": t.name(),
-                    "schema": t.schema(),
+                    // Standardschlüssel (Ziel-Revision) und Legacy-Schlüssel
+                    // tragen denselben Wert — siehe Doc-Kommentar oben.
+                    "inputSchema": schema,
+                    "schema": schema,
                 })
             })
             .collect()
     }
+
 
     /// `tools/call`. Führt ein Tool aus und liefert immer valides JSON.
     ///

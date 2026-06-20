@@ -19,8 +19,11 @@
 //! - `capabilities == { "tools": {} }` (Lifecycle ping/initialized aktiv, aber
 //!   nicht als Capability angekündigt, da kein Capability-Flag nötig)
 
-//! - `tools/list`-Eintragsform: `{ "name", "schema" }` (NICHT MCP-Standard
-//!   `inputSchema` — bewusst festgehalten als Delta für das Upgrade)
+//! - `tools/list`-Eintragsform: `{ "name", "inputSchema", "schema" }` — der
+//!   MCP-Standardschlüssel `inputSchema` UND der Legacy-Schlüssel `schema`
+//!   tragen denselben Wert (additive Migration, ADR-008 §A; Legacy fällt erst
+//!   in Runbook-Phase 9, wenn alle Clients umgestellt sind)
+
 //!
 //! **Kein `#[ignore]`** — rein offline, läuft in jeder `cargo test`-Runde.
 //!
@@ -233,23 +236,29 @@ async fn tools_list_entry_shape_is_frozen() {
     assert!(!tools.is_empty(), "Validator muss Tools sehen");
 
     for entry in tools {
-        // Heutige (nicht-MCP-Standard) Eintragsform: `name` + `schema`.
-        // Der Wechsel auf den Standard-Schlüssel `inputSchema` ist ein bewusst
-        // dokumentiertes Delta des Upgrades (ADR-008 §A) und muss diesen Test
-        // kontrolliert mitziehen.
+        // Eintragsform nach dem additiven Wire-Delta (ADR-008 §A): der
+        // MCP-Standardschlüssel `inputSchema` UND der Legacy-Schlüssel `schema`
+        // sind beide vorhanden und tragen DENSELBEN Wert. Neue Clients lesen
+        // `inputSchema`, der Alt-Client ansV liest `schema` — beide funktionieren
+        // bis zur Entfernung des Legacy-Schlüssels (Runbook Phase 9).
         assert!(
             entry["name"].is_string(),
             "Tool-Eintrag ohne string `name`: {entry}"
         );
         assert!(
-            entry.get("schema").is_some(),
-            "Tool-Eintrag ohne `schema` (heutige Vertragsform): {entry}"
+            entry.get("inputSchema").is_some(),
+            "Tool-Eintrag ohne MCP-Standardschlüssel `inputSchema`: {entry}"
         );
         assert!(
-            entry.get("inputSchema").is_none(),
-            "Heute existiert KEIN `inputSchema` — taucht es auf, ist das ein (gewolltes) Upgrade-Delta: {entry}"
+            entry.get("schema").is_some(),
+            "Legacy-Schlüssel `schema` muss bis Phase 9 erhalten bleiben (Alt-Client ansV): {entry}"
+        );
+        assert_eq!(
+            entry["inputSchema"], entry["schema"],
+            "inputSchema und schema müssen denselben Wert tragen (additives Doppel-Emit): {entry}"
         );
     }
+
 
     // `read_article` ist Teil des stabilen Tool-Satzes (vom Smoke-Test genutzt).
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
