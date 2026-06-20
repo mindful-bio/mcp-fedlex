@@ -200,6 +200,16 @@ Prod grün (1.4); Rollback-Digest gepinnt (1.5, GitOps-Commit/Sync als einziger 
       > `2025-03-26` (ADR-008 §Header-Regel). Beide Pfade müssen in 3.4 explizit getestet und ihr
       > Zusammenspiel beim Default-Flip (6.2) bewusst gesetzt werden — sonst droht ein stiller
       > Versions-Mismatch zwischen Handshake- und Header-Ebene.
+      > **Teilschritt ERLEDIGT (2026-06-20):** Die **Header-Ebene** ist als reine, noch **nicht
+      > verdrahtete** Klassifikation in `protocol.rs` vorbereitet: `classify_protocol_header()` →
+      > `ProtocolHeaderOutcome::{Absent, Supported, Unsupported}`. Bewusst getrennt von
+      > [`negotiate`] (Handshake-Ebene), damit der unterschiedliche Fallback explizit im Typ steht:
+      > **fehlender/leerer Header → `Absent` (kein 400)** — schützt die header-losen Alt-Clients
+      > (ansV, syllogismus-fedlex); gesetzte unbekannte Version → `Unsupported` (= späterer HTTP
+      > **400**, erst mit Streamable HTTP live). 5 Unit-Tests fixieren das Verhalten;
+      > `cargo test -p mcp-reader` → **141 unit + 6 baseline + 1 lexicon** grün. Die Verdrahtung in
+      > den Request-Pfad folgt erst mit dem Streamable-HTTP-Endpoint (3.2 Rest) + 3.4.
+
 - [ ] **3.2 Neuen Transport additiv implementieren.** Neuer Endpoint/Modus parallel zu `/sse`+
       `/rpc`. **`/rpc` bleibt unverändert bestehen**, solange ein Alt-Client existiert
       (ansV **und** syllogismus-fedlex, siehe §0.4).
