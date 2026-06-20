@@ -39,10 +39,17 @@ Upgrade bricht nicht nur den Server, sondern die belegbare Gutachten-Kette beide
 
 
 **Daraus folgt die zentrale Migrationsregel:**
-> Weil **beide** bekannten Konsumenten heute **ohne `initialize`** und **direkt auf `/rpc`** arbeiten,
-> ist jede Änderung an Transport-Pfad oder Pflicht-Handshake **breaking**, solange der alte Pfad
-> nicht parallel bestehen bleibt. Die Migration ist deshalb **additiv und rückwärtskompatibel**
-> auszulegen, niemals als harter Schnitt.
+> Es gibt **einen** Reader, und der wird auf die neue Spec gehoben — **kein Parallelbetrieb zweier
+> Protokollstände**. Der alte Stand (`2024-11-05`, `/sse`+`/rpc`) ist **kein Erhaltungsziel**; ihn
+> dauerhaft neben dem neuen am Leben zu halten macht das System nur komplizierter und fehleranfälliger,
+> nicht besser. „Vorsichtig" heißt hier **nicht** Rückwärtskompatibilität, sondern: **koordinierter,
+> einmaliger Umstieg** mit Gates, Tests und Rollback-Anker, damit wir beim Wechsel nichts
+> **verschlechtern**. Weil **beide** Konsumenten (ansV, syllogismus-fedlex) heute **ohne `initialize`**
+> und **direkt auf `/rpc`** arbeiten, werden sie **im selben Zug** auf den neuen Stand gezogen — die
+> Reihenfolge (Clients bereit → Server-Umstieg) ist das Sicherheitsnetz, nicht ein zweiter Dauerpfad.
+> Die `2024-11-05`-Baseline-Tests bleiben als **Vorher-Vergleich** erhalten (Regressions-Sichtbarkeit),
+> nicht als Kompatibilitätsversprechen.
+
 
 ---
 
@@ -184,10 +191,14 @@ Prod grün (1.4); Rollback-Digest gepinnt (1.5, GitOps-Commit/Sync als einziger 
 
 ---
 
-## Phase 3 — Transport-Kompatibilität (der riskanteste Teil)
+## Phase 3 — Transport-Umstieg auf Streamable HTTP (der riskanteste Teil)
 
-**Ziel:** Falls die Ziel-Revision den HTTP+SSE-Weg deprecatet (→ „Streamable HTTP"), neuen Weg
-**zusätzlich** anbieten, alten Weg erhalten.
+**Ziel:** Die Ziel-Revision deprecatet den HTTP+SSE-Weg (→ „Streamable HTTP"). Der neue Transport
+wird umgesetzt und der alte (`/sse`+`/rpc`) im Zuge des Umstiegs **ersetzt**, **nicht** dauerhaft
+parallel gepflegt. Ein kurzer Übergang, in dem der alte Pfad noch antwortet, ist nur zulässig,
+**bis beide Clients (Phase 7) umgestellt sind** — danach wird er entfernt (Phase 9). Es bleibt also
+**ein** Zielzustand, kein Dauer-Doppelbetrieb.
+
 
 - [x] **3.1 Entscheidung aus Delta-Matrix — JA, betrifft uns (2026-06-20).** Laut ADR-008 §A-2
       (Revision `2025-03-26`, Zeile 2) ist HTTP+SSE → **Streamable HTTP** als DEPRECATED/**BREAKING**
@@ -210,9 +221,11 @@ Prod grün (1.4); Rollback-Digest gepinnt (1.5, GitOps-Commit/Sync als einziger 
       > `cargo test -p mcp-reader` → **141 unit + 6 baseline + 1 lexicon** grün. Die Verdrahtung in
       > den Request-Pfad folgt erst mit dem Streamable-HTTP-Endpoint (3.2 Rest) + 3.4.
 
-- [ ] **3.2 Neuen Transport additiv implementieren.** Neuer Endpoint/Modus parallel zu `/sse`+
-      `/rpc`. **`/rpc` bleibt unverändert bestehen**, solange ein Alt-Client existiert
-      (ansV **und** syllogismus-fedlex, siehe §0.4).
+- [ ] **3.2 Neuen Transport implementieren (Streamable HTTP).** Neuer Endpoint/Modus. Der alte
+      `/rpc`-Pfad bleibt **nur übergangsweise** erreichbar, **bis beide Clients (Phase 7) umgestellt
+      sind** — er ist kein Dauerzustand, sondern wird in Phase 9 entfernt. Ziel ist der neue
+      Transport als **einziger** Pfad.
+
       > **⚠ Struktureller Vorab-Umbau — ERLEDIGT (2026-06-20):** `rpc_handler` gab bisher
       > `Json<JsonRpcResponse>` zurück (immer HTTP 200 mit JSON-Body, selbst bei Auth-/Parse-
       > Fehlern) und konnte **keine** der neuen Status-Anforderungen ausdrücken (202/204 ohne
