@@ -20,9 +20,10 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{header::AUTHORIZATION, HeaderMap};
 use axum::response::sse::{Event, Sse};
-use axum::response::Json;
+use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use axum::Router;
+
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -173,10 +174,15 @@ pub struct McpService<A: AuthResolver, B: QuotaBackend> {
     auth: A,
     limiter: RateLimiter<B>,
     temporal: TemporalResolver,
+    /// Ausgehandelte Default-Protokollversion, wenn der Client keine nennt
+    /// (Migrations-Runbook Phase 2). Aus der Umgebung (`MCP_PROTOCOL_DEFAULT`)
+    /// aufgelöst, fällt fail-safe auf [`crate::protocol::DEFAULT_PROTOCOL_VERSION`].
+    protocol_default: &'static str,
 }
 
 impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
-    /// Erzeugt den Dienst aus seinen Bausteinen.
+    /// Erzeugt den Dienst aus seinen Bausteinen. Die Default-Protokollversion
+    /// wird aus der Umgebung aufgelöst (Config-Flip statt Code-Redeploy).
     pub fn new(
         registry: Registry,
         auth: A,
@@ -188,6 +194,25 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
             auth,
             limiter,
             temporal,
+            protocol_default: crate::protocol::default_protocol_version(),
+        }
+    }
+
+    /// Wie [`Self::new`], aber mit explizit gesetzter Default-Protokollversion
+    /// (deterministisch für Tests, ohne Umgebungsvariablen).
+    pub fn with_protocol_default(
+        registry: Registry,
+        auth: A,
+        limiter: RateLimiter<B>,
+        temporal: TemporalResolver,
+        protocol_default: &'static str,
+    ) -> Self {
+        Self {
+            registry,
+            auth,
+            limiter,
+            temporal,
+            protocol_default,
         }
     }
 
@@ -211,14 +236,27 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
         };
 
         match req.method.as_str() {
-            "initialize" => JsonRpcResponse::ok(
-                req.id,
-                json!({
-                    "protocolVersion": "2024-11-05",
-                    "serverInfo": { "name": "mcp-fedlex-reader", "version": env!("CARGO_PKG_VERSION") },
-                    "capabilities": { "tools": {} }
-                }),
-            ),
+            "initialize" => {
+                // Versions-Negotiation (Migrations-Runbook Phase 2). Der Client
+                // darf `protocolVersion` nennen; tut er es nicht (heutiger ansV-
+                // Fall), gilt die konfigurierte Default-Version. Eine unbekannte/
+                // zu neue Version beantworten wir spec-konform mit unserer
+                // höchsten — kein harter Fehler. Capabilities bleiben ehrlich
+                // (nur `tools`, solange nichts anderes implementiert ist).
+                let requested = req
+                    .params
+                    .get("protocolVersion")
+                    .and_then(Value::as_str);
+                let negotiated = crate::protocol::negotiate(requested, self.protocol_default);
+                JsonRpcResponse::ok(
+                    req.id,
+                    json!({
+                        "protocolVersion": negotiated,
+                        "serverInfo": { "name": "mcp-fedlex-reader", "version": env!("CARGO_PKG_VERSION") },
+                        "capabilities": { "tools": {} }
+                    }),
+                )
+            }
 
             "tools/list" => JsonRpcResponse::ok(
                 req.id,
@@ -332,11 +370,20 @@ fn now_ms() -> u64 {
 }
 
 /// POST `/rpc`. Verarbeitet eine JSON-RPC-Nachricht.
+///
+/// **Rückgabetyp [`Response`] statt `Json<…>` (Migrations-Runbook Phase 3.2).**
+/// Heute antwortet jeder Pfad weiterhin **HTTP 200 + JSON-Body** — bit-identisch
+/// zum bisherigen Verhalten und von Alt-Clients (ansV, syllogismus-fedlex) nicht
+/// unterscheidbar. Der allgemeinere Typ ist die strukturelle Vorbedingung, um in
+/// den späteren Phasen ohne erneuten Signatur-Umbau die von der Ziel-Revision
+/// geforderten Status-Codes auszudrücken: **202/204** ohne Body (Notifications,
+/// 5.1), **400** (unbekannte Protokollversion), **403** (ungültiger `Origin`),
+/// **401**. Bis dahin bleibt es bei 200+JSON.
 async fn rpc_handler<A, B>(
     State(svc): State<Arc<McpService<A, B>>>,
     headers: HeaderMap,
     body: Bytes,
-) -> Json<JsonRpcResponse>
+) -> Response
 where
     A: AuthResolver + Send + Sync + 'static,
     B: QuotaBackend + Send + Sync + 'static,
@@ -344,16 +391,19 @@ where
     let req: JsonRpcRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => {
+            // Parse-Fehler bleibt wie bisher 200 + JSON-RPC-Error-Body.
             return Json(JsonRpcResponse::err(
                 Value::Null,
                 codes::PARSE_ERROR,
                 e.to_string(),
             ))
+            .into_response();
         }
     };
     let cred = bearer(&headers);
-    Json(svc.handle(cred.as_deref(), req, now_ms()).await)
+    Json(svc.handle(cred.as_deref(), req, now_ms()).await).into_response()
 }
+
 
 /// GET `/sse`. Eröffnet den Ereignis-Strom und nennt die POST-Adresse.
 ///
@@ -595,6 +645,73 @@ mod tests {
         let result = resp.result.unwrap();
         assert_eq!(result["serverInfo"]["name"], "mcp-fedlex-reader");
         assert!(result["capabilities"]["tools"].is_object());
+    }
+
+    /// Baut einen Dienst mit explizit gesetzter Default-Protokollversion, um die
+    /// Negotiation deterministisch (ohne Umgebungsvariablen) zu prüfen.
+    fn service_with_default(
+        backend: MockBackend,
+        default: &'static str,
+    ) -> McpService<StaticAuthResolver, MockBackend> {
+        let mut registry = Registry::new();
+        registry.register(Arc::new(ReadArticle));
+        let limiter = RateLimiter::with_policy(backend, QuotaPolicy::default());
+        let temporal = TemporalResolver::new(time::macros::date!(2024 - 01 - 01));
+        McpService::with_protocol_default(registry, auth(), limiter, temporal, default)
+    }
+
+    #[tokio::test]
+    async fn initialize_without_client_version_uses_default() {
+        // Heutiger ansV-Fall: kein protocolVersion im initialize → Default.
+        let svc = service(MockBackend::allowing());
+        let resp = svc
+            .handle(Some("token-a"), req(1, "initialize", json!({})), 0)
+            .await;
+        assert_eq!(
+            resp.result.unwrap()["protocolVersion"],
+            crate::protocol::DEFAULT_PROTOCOL_VERSION
+        );
+    }
+
+    #[tokio::test]
+    async fn initialize_echoes_supported_client_version() {
+        let svc = service(MockBackend::allowing());
+        let resp = svc
+            .handle(
+                Some("token-a"),
+                req(1, "initialize", json!({ "protocolVersion": "2024-11-05" })),
+                0,
+            )
+            .await;
+        assert_eq!(resp.result.unwrap()["protocolVersion"], "2024-11-05");
+    }
+
+    #[tokio::test]
+    async fn initialize_with_unknown_version_offers_highest_supported() {
+        // Spec-konform: kein harter Fehler, sondern „unser Bestes".
+        let svc = service(MockBackend::allowing());
+        let resp = svc
+            .handle(
+                Some("token-a"),
+                req(1, "initialize", json!({ "protocolVersion": "2099-01-01" })),
+                0,
+            )
+            .await;
+        assert_eq!(
+            resp.result.unwrap()["protocolVersion"],
+            crate::protocol::highest_supported()
+        );
+    }
+
+    #[tokio::test]
+    async fn initialize_default_is_config_driven() {
+        // Der Default ist ein Config-Flip: with_protocol_default steuert die
+        // ausgehandelte Version für handshake-lose Clients.
+        let svc = service_with_default(MockBackend::allowing(), "2024-11-05");
+        let resp = svc
+            .handle(Some("token-a"), req(1, "initialize", json!({})), 0)
+            .await;
+        assert_eq!(resp.result.unwrap()["protocolVersion"], "2024-11-05");
     }
 
     #[tokio::test]
@@ -869,4 +986,78 @@ mod tests {
         assert_eq!(v["result"]["tools"][0]["name"], "read_article");
         assert_eq!(v["id"], json!(2));
     }
+
+    /// Invarianz nach dem Phase-3.2-Vorab-Umbau (`Json<…>` → [`Response`]).
+    ///
+    /// Der Rückgabetyp ist jetzt allgemeiner, das **beobachtbare Verhalten muss
+    /// aber bit-identisch** bleiben, solange noch keine Status-Code-Logik (3.x/5.x)
+    /// existiert: jeder Pfad antwortet **HTTP 200** mit
+    /// `content-type: application/json` — auch der Auth-Fehlerfall, der nur als
+    /// JSON-RPC-Error im Body erscheint, nie als HTTP-Status. Dieser Test fällt
+    /// rot, sobald jemand versehentlich einen abweichenden Status einführt, und
+    /// schützt damit die Alt-Clients (ansV, syllogismus-fedlex), die ausschliesslich
+    /// den Body auswerten.
+    #[tokio::test]
+    async fn rpc_handler_keeps_200_json_for_all_paths() {
+        use axum::body::Body;
+        use axum::http::{header::CONTENT_TYPE, Request, StatusCode};
+        use tower::ServiceExt;
+
+        let svc = Arc::new(service(MockBackend::allowing()));
+        let app = router(svc);
+
+        // Drei repräsentative Pfade, die intern unterschiedlich enden:
+        //  - Parse-Fehler (kein gültiges JSON),
+        //  - Auth-Fehler (gültiges JSON, kein Token),
+        //  - Erfolg (gültiges JSON + Token).
+        let cases: Vec<(&str, Body)> = vec![
+            ("parse error", Body::from("{ this is not json")),
+            (
+                "auth error",
+                Body::from(
+                    serde_json::to_vec(&json!({
+                        "jsonrpc": "2.0", "id": 1, "method": "tools/list"
+                    }))
+                    .unwrap(),
+                ),
+            ),
+        ];
+
+        for (label, body) in cases {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/rpc")
+                        .header("content-type", "application/json")
+                        .body(body)
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "{label}: muss HTTP 200 bleiben (Status-Logik kommt erst in Phase 3.x/5.x)"
+            );
+            let ct = resp
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            assert!(
+                ct.starts_with("application/json"),
+                "{label}: content-type muss application/json bleiben, war `{ct}`"
+            );
+            // Body bleibt eine valide JSON-RPC-Hülle.
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let v: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(v["jsonrpc"], "2.0", "{label}: jsonrpc-Marker bleibt");
+        }
+    }
 }
+
