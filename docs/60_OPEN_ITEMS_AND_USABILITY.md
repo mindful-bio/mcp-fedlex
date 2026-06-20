@@ -148,8 +148,10 @@ Offene **interne** Roadmap-Punkte (aus 50_ROADMAP, unverändert gültig):
 Der Handshake handelt heute `2024-11-05` aus (eine Konstante in `transport.rs:217`). Der
 Methoden-Footprint ist bewusst klein (`initialize`, `tools/list`, `tools/call`; Capabilities
 nur `{tools:{}}`; kein `ping`/`notifications`/`resources`/`prompts`), daher ist das Upgrade
-abgrenzbar — aber kein Badge-Tausch: die Zielversion-Deltas müssen erst an der offiziellen
-Spec verifiziert werden, bevor Code/String steigen. Zielrelease **`v0.2.0`**.
+abgrenzbar — aber kein Badge-Tausch: die Zielversion-Deltas wurden an der offiziellen
+Spec verifiziert (ADR-008 §A). **Ziel-Revision: `2025-11-25`** (`2025-06-18` ist als Ziel
+ausgeschlossen). Erst auf dieser Basis steigen Code/String. Zielrelease **`v0.2.0`**.
+
 
 > **Operatives Runbook:** [`55_MIGRATION_mcp_protocol_upgrade.md`](55_MIGRATION_mcp_protocol_upgrade.md)
 > — Phasen 0–9 mit Gate & Rollback je Schritt; berücksichtigt insbesondere, dass der
@@ -157,11 +159,24 @@ Spec verifiziert werden, bevor Code/String steigen. Zielrelease **`v0.2.0`**.
 > die Migration also **additiv/rückwärtskompatibel** sein muss.
 
 
-- [ ] **E-1 (§A):** Spec-Recherche — höchste stabile Revision + Delta-Matrix (neu/geändert/
-      deprecated/breaking) gegen unseren Footprint; Ziel-Revision festlegen.
+- [x] **E-1 (§A):** Spec-Recherche — **erledigt (2026-06-20)**. Höchste stabile Revision
+      **`2025-11-25`** als Ziel festgelegt (`2025-06-18` ausgeschlossen); Delta-Matrix
+      (neu/geändert/deprecated/breaking) gegen unseren Footprint in
+      [ADR-008 §A](adr/ADR-008-mcp-protocol-version-upgrade.md); in `CHANGELOG.md`
+      (`Unreleased` → `v0.2.0`) vorgemerkt.
+
 - [ ] **E-2 (§B):** Versions-Negotiation (`SUPPORTED_PROTOCOL_VERSIONS`), Transport-Anpassung
       (HTTP+SSE ggf. → Streamable HTTP), Auth-Mapping (ADR-002 fail-closed bleibt), Lifecycle-
       Notifications/Capabilities ehrlich.
+      > **Code-verifizierte Vorab-Befunde (2026-06-20), Details in ADR-008 §B-4/§B-5 + Runbook 3.2/5.1/7.2a:**
+      > 1. **`schema`→`inputSchema`:** `tools/list` nutzt das Nicht-Standard-Feld `schema`; ansV liest es
+      >    aktiv (`llm.rs`) → additiver Doppel-Output + ansV-Fallback zwingend (sonst `parameters=null`).
+      > 2. **Notification-Handling fehlt:** `id` ist `#[serde(default)]` → Server antwortet fälschlich
+      >    `-32601` auf `notifications/initialized` statt zu schweigen (`id: Option<Value>` + No-Body).
+      > 3. **Delta #13 (Input-Validation):** zwei `tools/call`-Pfade liefern noch `-32602` statt
+      >    Tool-Execution-Error (breaking ggü. Baseline-Test 1.2).
+      > 4. **`rpc_handler`-Signatur:** `Json<JsonRpcResponse>` (immer 200+Body) kann 202/204/400/401/403
+      >    nicht ausdrücken → Umbau auf `impl IntoResponse` als Vorbedingung.
 - [ ] **E-3 (§C):** Konformanz- + Provenance-Konsistenz-Test (ausgehandelte Version == Badge ==
       ADR-Ziel), Client-Gegentest, Docs/Badge nachziehen, `v0.2.0` taggen.
 

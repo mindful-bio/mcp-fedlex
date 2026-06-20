@@ -337,7 +337,6 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                 json!({ "tools": self.registry.list_tools(claims.role()) }),
             ),
 
-
             "tools/call" => {
                 // Tool-Namen ZUERST bestimmen, damit das Quota-Gewicht
                 // pool-abhängig gebucht werden kann (ADR-006). Der Name kommt aus
@@ -490,7 +489,6 @@ where
     let cred = bearer(&headers);
     Json(svc.handle(cred.as_deref(), req, now_ms()).await).into_response()
 }
-
 
 /// GET `/sse`. Eröffnet den Ereignis-Strom und nennt die POST-Adresse.
 ///
@@ -1055,7 +1053,6 @@ mod tests {
         assert!(resp.error.is_none());
         assert_eq!(resp.result.unwrap(), json!({}));
     }
-
 
     // --- Notification vs. Request (Migrations-Runbook Phase 5.1) ---
 

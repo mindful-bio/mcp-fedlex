@@ -193,7 +193,6 @@ async fn initialize_handshake_negotiates_target_revision() {
         "Default-Negotiation muss die Ziel-Revision liefern — Flip ist kontrolliert über ADR-008/Runbook 6.3"
     );
 
-
     // Server-Identität, auf die der Smoke-Test und ansV bauen.
     assert_eq!(result["serverInfo"]["name"], "mcp-fedlex-reader");
     assert!(
@@ -258,7 +257,6 @@ async fn tools_list_entry_shape_is_frozen() {
             "inputSchema und schema müssen denselben Wert tragen (additives Doppel-Emit): {entry}"
         );
     }
-
 
     // `read_article` ist Teil des stabilen Tool-Satzes (vom Smoke-Test genutzt).
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();

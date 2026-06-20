@@ -38,7 +38,6 @@ pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05", "2025-11-25"];
 /// Umgebung überschreibbar (Runbook 2.3), z. B. Rollback auf `2024-11-05`.
 pub const DEFAULT_PROTOCOL_VERSION: &str = "2025-11-25";
 
-
 /// Die höchste tatsächlich unterstützte Revision (letztes Element der sortierten
 /// Liste). Antwort auf unbekannte/zu neue Client-Versionen.
 pub fn highest_supported() -> &'static str {

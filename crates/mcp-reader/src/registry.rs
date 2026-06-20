@@ -68,7 +68,6 @@ impl Registry {
             .collect()
     }
 
-
     /// `tools/call`. Führt ein Tool aus und liefert immer valides JSON.
     ///
     /// Reihenfolge der Prüfungen. Existenz, dann RBAC, dann Ausführung. Jeder
