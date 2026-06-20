@@ -1,7 +1,10 @@
 # mcp-fedlex
 
+[![pipeline status](https://git.mindful-server.com/mindful-bio/mcp-fedlex/badges/main/pipeline.svg)](https://git.mindful-server.com/mindful-bio/mcp-fedlex/-/pipelines)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-2024--11--05-blue.svg)](https://modelcontextprotocol.io)
+[![Release](https://img.shields.io/badge/release-v0.1.0-green.svg)](./CHANGELOG.md)
+
+
 
 Ein **Model-Context-Protocol-Server für Fedlex** (Schweizer Bundesrecht) — ein
 mindful.bio-Produkt. Der Server gibt einem LLM **belegbaren** Zugriff auf
@@ -105,7 +108,28 @@ Rollen- und Token-Modell (Dev-Token vs. JWT/JWKS) steht in
 > Dev-Token). Produktiver Betrieb auf Kubernetes (JWT/JWKS, Redis-mTLS, SealedSecrets):
 > **[`docs/80_DEPLOY.md`](./docs/80_DEPLOY.md)**.
 
+## Versioniertes Image beziehen
+
+Für Fremdnutzung gibt es **zitierbare SemVer-Images** (unveränderlich, an einen
+Git-Tag gebunden) zusätzlich zu den rollenden Tags des internen Continuous-Deploy:
+
+| Tag | Zweck | Stabilität |
+|-----|-------|-----------|
+| `:v0.1.0` | zitierbares Release (an Git-Tag `v0.1.0`) | unveränderlich — **für Fremdnutzer empfohlen** |
+| `:latest` | jeweils letzter `main`-Stand | rollend |
+| `:<short-sha>` | exakter Commit | unveränderlich, intern |
+
+```bash
+docker pull registry.mindful-server.com/mindful-bio/mcp-fedlex:v0.1.0
+```
+
+Releases sind in [`CHANGELOG.md`](./CHANGELOG.md) dokumentiert; die gemeldete
+`serverInfo.version` (siehe `initialize`) entspricht dem SemVer aus `Cargo.toml`.
+Ein neues Release entsteht durch einen Git-Tag `vX.Y.Z` — die CI baut daraus
+automatisch das gleichnamige Image.
+
 ## Aus dem Quellcode bauen & testen
+
 
 ```bash
 cargo build --workspace

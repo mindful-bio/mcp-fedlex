@@ -44,6 +44,8 @@ Anleitung und fehlendem Ein-Befehl-Start. Verifizierte Lücken:
 | **U-6** | RBAC/Rollen & Token-Beschaffung undokumentiert (Dev-Token ⇒ Validator; JWT-Claims-Schema) | `main.rs` (Z. 144–196), kein Doc |
 | **U-7** | Deploy-Pfad für Dritte fehlt: SealedSecrets-Schritt war manuell & untested (heutiger Vorfall) | `k3-infra/.../gen-redis-mtls.sh` |
 | **U-8** | Kein veröffentlichtes Image / keine Versionierung/Tags für Fremdnutzung (nur interne Registry) | `.gitlab-ci.yml` (nur `latest`/SHA, interne Registry) |
+| **U-9** | MCP-Protokollversion veraltet (`2024-11-05` hartcodiert); aktuelle Spec-Revision nicht ausgehandelt | `transport.rs:217` — siehe [ADR-008](adr/ADR-008-mcp-protocol-version-upgrade.md) |
+
 
 Offene **interne** Roadmap-Punkte (aus 50_ROADMAP, unverändert gültig):
 
@@ -108,16 +110,22 @@ Offene **interne** Roadmap-Punkte (aus 50_ROADMAP, unverändert gültig):
       Commit-Konvention, Verweis auf SECURITY.md.
 - [x] **C-2 (U-5): `SECURITY.md`** — Meldeweg (security@mindful.bio), Geltungsbereich, fail-closed-
       Sicherheitsmodell, Geheimnis-/SealedSecret-Handhabung (ADR-001/002/005).
-- [ ] **C-3 (U-5): `CHANGELOG.md`** — „Keep a Changelog"-Format; erste Einträge aus Git-Historie.
+- [x] **C-3 (U-5): `CHANGELOG.md`** — „Keep a Changelog"-Format; Erst-Eintrag `0.1.0` aus
+      Git-Historie, `Unreleased`-Sektion, Compare-/Tag-Links. *(2026-06-20)*
 - [ ] **C-4 (U-5): Issue/PR-Templates** — `.github/ISSUE_TEMPLATE/` (bug/feature) + `PULL_REQUEST_TEMPLATE.md`.
 - [x] **C-5 (U-6): `docs/90_AUTH_AND_ROLES.md`** — Rollenmodell (Reader ⊆ Navigator ⊆ Validator),
       Pool-Sichtbarkeitsmatrix, JWT-Claims-Schema (iss/aud/role/tenant/sid), Quota pro Rolle,
       Auth-Auswahlreihenfolge (JWKS/HS256/RS256/Dev-Token), Audit-Log-Beispiel.
-- [ ] **C-6 (U-8): Veröffentlichungs-Pfad** — entweder GHCR-Push im GitHub-Workflow **oder** klar
+- [x] **C-6 (U-8): Veröffentlichungs-Pfad** — Hybrid: dynamische `latest`/`<sha>`-Tags für den
+      internen Deploy **plus** zitierbare SemVer-Images über einen `release-image`-Job, der auf
+      Git-Tag `vX.Y.Z` baut (`.gitlab-ci.yml`). README-Abschnitt „Versioniertes Image beziehen"
+      nennt `:v0.1.0` als empfohlene Fremdnutzer-Referenz. *(2026-06-20)*
+- [x] **C-7 (U-1): README-Badges** — Pipeline-Status, Lizenz, Release-Badge (`v0.1.0`). Ein
+      **MCP-Protokoll-Badge bleibt bewusst ausgesetzt**, bis die Version aktuell ist: der Server
+      handelt heute `2024-11-05` aus; ein Badge mit neuerer Zahl wäre falsche Provenance.
+      → Upgrade als **U-9 / Block E** ([ADR-008](adr/ADR-008-mcp-protocol-version-upgrade.md)).
+      *(2026-06-20)*
 
-      dokumentierter Eigenbau (`docker build`). Mindestens **SemVer-Tag** zusätzlich zu
-      `latest`/SHA; README nennt das nutzbare Image-Referenz.
-- [ ] **C-7 (U-1): README-Badges** — CI-Status, Lizenz, MCP-Protokollversion (2024-11-05).
 
 > **Abnahme C.** Repo-Startseite zeigt klar: Was, Wie-mitmachen, Wie-melden, Wie-anbinden. Ein
 > Fremder findet Rollen/Token-Doku ohne Quellcode-Lektüre. Es existiert eine zitierbare
@@ -135,7 +143,33 @@ Offene **interne** Roadmap-Punkte (aus 50_ROADMAP, unverändert gültig):
 > **Abnahme D.** Je Punkt der in [30_PLAN.md → M10](30_PLAN.md) genannte Test-/Infra-Nachweis;
 > Matrix bleibt nach D-4 grün und vollständig.
 
+### Block E — MCP-Protokoll-Upgrade (U-9) — geplant, [ADR-008](adr/ADR-008-mcp-protocol-version-upgrade.md)
+
+Der Handshake handelt heute `2024-11-05` aus (eine Konstante in `transport.rs:217`). Der
+Methoden-Footprint ist bewusst klein (`initialize`, `tools/list`, `tools/call`; Capabilities
+nur `{tools:{}}`; kein `ping`/`notifications`/`resources`/`prompts`), daher ist das Upgrade
+abgrenzbar — aber kein Badge-Tausch: die Zielversion-Deltas müssen erst an der offiziellen
+Spec verifiziert werden, bevor Code/String steigen. Zielrelease **`v0.2.0`**.
+
+> **Operatives Runbook:** [`55_MIGRATION_mcp_protocol_upgrade.md`](55_MIGRATION_mcp_protocol_upgrade.md)
+> — Phasen 0–9 mit Gate & Rollback je Schritt; berücksichtigt insbesondere, dass der
+> ansV-Konsument heute **kein `initialize`** ausführt und **direkt auf `/rpc`** zugreift,
+> die Migration also **additiv/rückwärtskompatibel** sein muss.
+
+
+- [ ] **E-1 (§A):** Spec-Recherche — höchste stabile Revision + Delta-Matrix (neu/geändert/
+      deprecated/breaking) gegen unseren Footprint; Ziel-Revision festlegen.
+- [ ] **E-2 (§B):** Versions-Negotiation (`SUPPORTED_PROTOCOL_VERSIONS`), Transport-Anpassung
+      (HTTP+SSE ggf. → Streamable HTTP), Auth-Mapping (ADR-002 fail-closed bleibt), Lifecycle-
+      Notifications/Capabilities ehrlich.
+- [ ] **E-3 (§C):** Konformanz- + Provenance-Konsistenz-Test (ausgehandelte Version == Badge ==
+      ADR-Ziel), Client-Gegentest, Docs/Badge nachziehen, `v0.2.0` taggen.
+
+> **Abnahme E.** `initialize` handelt die verifizierte aktuelle Revision aus; ein
+> Konsistenztest bricht CI, wenn Code-Version, README-Badge und ADR-Ziel divergieren.
+
 ---
+
 
 ## 3. Reihenfolge in einem Satz
 

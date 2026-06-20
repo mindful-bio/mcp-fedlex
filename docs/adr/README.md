@@ -15,9 +15,14 @@ Kontext, Entscheidung und Akzeptanzkriterien für das spätere Coding fest.
 | [ADR-006](ADR-006-discovery-tools-and-hint-provenance.md) | Discovery-Tools & Hinweis-Provenance | Reader / Registry, RBAC, Quota, ansV |
 | [ADR-007](ADR-007-jolux-metadata-tools-pool-and-quota.md) | JOLux-Metadaten-Tools: RBAC-Pool & Quota-Gewicht | Reader / Registry, RBAC, Quota, ansV |
 
+## Vorgeschlagen (Plan, noch nicht umgesetzt)
 
+| ADR | Titel | Betrifft |
+| --- | --- | --- |
+| [ADR-008](ADR-008-mcp-protocol-version-upgrade.md) | MCP-Protokollversion — Upgrade & Versions-Negotiation | Reader / Transport, alle MCP-Clients |
 
 ## Backlog (Härtung, noch nicht als ADR ausgearbeitet)
+
 
 Diese Punkte sind erkannt und bewusst zurückgestellt. Sie betreffen Betriebshärtung, nicht
 die fachliche Architektur, und werden vor dem produktiven Betrieb (Day-2) ausgearbeitet.
