@@ -265,8 +265,25 @@ abgleichen, **ohne** fail-closed aufzuweichen.
       > (Request) zu unterscheiden; (b) bei Notifications **keinen** Response-Body erzeugen; (c)
       > der `/rpc`-HTTP-Handler muss diesen No-Body-Fall mit **HTTP 202/204 ohne JSON** umsetzen
       > (siehe 3.x), statt eine leere JSON-RPC-Response zu serialisieren.
+      > **Teilschritt (a) ERLEDIGT (2026-06-20):** `JsonRpcRequest.id` ist von
+      > `#[serde(default)] Value` auf **`Option<Option<Value>>`** mit eigenem
+      > `deserialize_with`-Adapter (`deserialize_present_id`) umgestellt. Das **doppelte
+      > `Option` ist bedeutungstragend**, weil serde ein anwesendes `null` sonst auf `None`
+      > kollabieren würde: *Feld fehlt* → `None` (**Notification**), *`id: null`* → `Some(None)`
+      > (Request, Null-Id), *`id: 7`* → `Some(Some(7))`. Die Klassifikation liegt in
+      > `JsonRpcRequest::is_notification()`; das **Antwortverhalten bleibt strikt verhaltensneutral**:
+      > der neue `response_id()`-Helfer bildet beide Null-Fälle weiterhin auf `Value::Null` ab, und
+      > alle bestehenden Call-Sites (`initialize`/`tools/list`/`tools/call`/Fehlerpfade) nutzen ihn,
+      > sodass Alt-Clients (ansV, syllogismus-fedlex) bit-identisch dieselbe Antwort sehen. Drei
+      > Unit-Tests fixieren die Drei-Wege-Unterscheidung über die Wire-Grenze
+      > (`notification_is_classified_and_maps_to_null_response_id`,
+      > `explicit_null_id_is_a_request_not_a_notification`,
+      > `missing_id_field_deserializes_as_notification`). `cargo test -p mcp-reader` → **144 unit +
+      > 6 baseline + 1 lexicon** grün. **Offen bleiben (b)** kein Response-Body bei Notifications und
+      > **(c)** der HTTP-202/204-No-Body-Pfad — beide erst mit dem Streamable-HTTP-Endpoint (3.2 Rest).
 - [ ] **5.2 `ping`** beantworten, falls Pflicht (echte Request/Response **mit** `id` —
       nur ein zusätzlicher Match-Arm, von 5.1 unberührt).
+
 - [ ] **5.3 Capabilities ehrlich.** In `initialize` nur ankündigen, was getestet ist. `tools`
       ggf. um neue Flags der Ziel-Revision erweitern — **kein** `resources`/`prompts`, solange
       nicht implementiert (bewusste Abgrenzung, analog Lexikon-Projektion).

@@ -54,14 +54,71 @@ mod codes {
 /// Eine eingehende JSON-RPC-2.0-Anfrage.
 #[derive(Debug, Clone, Deserialize)]
 pub struct JsonRpcRequest {
-    /// Korrelations-Id der Anfrage (Zahl, String oder null).
-    #[serde(default)]
-    pub id: Value,
+    /// Korrelations-Id der Anfrage.
+    ///
+    /// **Doppeltes `Option` ist hier bedeutungstragend (Migrations-Runbook
+    /// Phase 5.1):** JSON-RPC unterscheidet drei Fälle, die ein einfaches
+    /// `Option<Value>` nicht trennen kann, weil serde ein explizites `null`
+    /// beim Deserialisieren auf `None` kollabiert:
+    ///
+    /// | Wire-Form          | Bedeutung           | hier            |
+    /// |--------------------|---------------------|-----------------|
+    /// | Feld `id` fehlt    | **Notification**    | `None`          |
+    /// | `"id": null`       | Request, Null-Id    | `Some(None)`    |
+    /// | `"id": 7`          | Request mit Id      | `Some(Some(7))` |
+    ///
+    /// Das äussere `Option` trennt *fehlend* (Notification) von *vorhanden*; das
+    /// innere trägt den tatsächlichen `null`/Wert. Der vorherige Typ `Value` mit
+    /// `#[serde(default)]` machte Notifications unerkennbar. Die Klassifikation
+    /// erfolgt über [`JsonRpcRequest::is_notification`]; das **Antwortverhalten
+    /// bleibt vorerst unverändert** (siehe [`JsonRpcRequest::response_id`]).
+    #[serde(default, deserialize_with = "deserialize_present_id")]
+    pub id: Option<Option<Value>>,
     /// Aufgerufene Methode.
     pub method: String,
     /// Parameter der Methode.
     #[serde(default)]
     pub params: Value,
+}
+
+/// Deserialisiert das `id`-Feld so, dass *Vorhandensein* erhalten bleibt.
+///
+/// Wird diese Funktion aufgerufen, **war das Feld im JSON vorhanden** (serde ruft
+/// `deserialize_with` nur für anwesende Felder auf). Wir wickeln den inneren Wert
+/// daher in `Some(..)` — ein anwesendes `null` wird zu `Some(None)`, ein anwesender
+/// Wert zu `Some(Some(v))`. Fehlt das Feld, greift `#[serde(default)]` und liefert
+/// das äussere `None` (Notification). So bleibt die Drei-Wege-Unterscheidung der
+/// Tabelle oben über die Wire-Grenze erhalten.
+fn deserialize_present_id<'de, D>(deserializer: D) -> Result<Option<Option<Value>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<Value>::deserialize(deserializer).map(Some)
+}
+
+impl JsonRpcRequest {
+    /// `true`, wenn die Nachricht eine **Notification** ist (JSON-RPC: Feld `id`
+    /// fehlt vollständig). Eine Notification erwartet **keine** Antwort.
+    ///
+    /// Beachte: ein **vorhandenes** `id: null` ist **keine** Notification, sondern
+    /// ein Request mit Null-Id — `is_notification()` ist dort `false`.
+    pub fn is_notification(&self) -> bool {
+        self.id.is_none()
+    }
+
+    /// Die Korrelations-Id für die Antwort.
+    ///
+    /// **Verhaltensneutral zur Vorgeschichte:** Ein fehlendes `id` (Notification)
+    /// wird hier — wie zuvor durch `#[serde(default)]` auf `Value` — auf
+    /// `Value::Null` abgebildet. Solange der No-Body-Notification-Pfad (Runbook
+    /// 5.1 + 3.x) noch nicht verdrahtet ist, antwortet der Server damit exakt wie
+    /// bisher. Die Unterscheidung Notification/Request bleibt über
+    /// [`Self::is_notification`] erhalten und geht nicht verloren.
+    pub fn response_id(&self) -> Value {
+        // Äusseres `None` (Notification) UND inneres `None` (`id: null`) bilden
+        // beide auf `Value::Null` ab — exakt wie das frühere `Value`-Verhalten.
+        self.id.clone().flatten().unwrap_or(Value::Null)
+    }
 }
 
 /// Eine JSON-RPC-2.0-Fehlerhülle.
@@ -228,11 +285,17 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
     ) -> JsonRpcResponse {
         // Identität zuerst. Ohne gültiges Credential keine Methode.
         let Some(cred) = credential else {
-            return JsonRpcResponse::err(req.id, codes::UNAUTHORIZED, "missing credential");
+            return JsonRpcResponse::err(
+                req.response_id(),
+                codes::UNAUTHORIZED,
+                "missing credential",
+            );
         };
         let claims = match self.auth.verify(cred) {
             Ok(c) => c,
-            Err(e) => return JsonRpcResponse::err(req.id, codes::UNAUTHORIZED, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::err(req.response_id(), codes::UNAUTHORIZED, e.to_string())
+            }
         };
 
         match req.method.as_str() {
@@ -243,23 +306,21 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                 // zu neue Version beantworten wir spec-konform mit unserer
                 // höchsten — kein harter Fehler. Capabilities bleiben ehrlich
                 // (nur `tools`, solange nichts anderes implementiert ist).
-                let requested = req
-                    .params
-                    .get("protocolVersion")
-                    .and_then(Value::as_str);
+                let requested = req.params.get("protocolVersion").and_then(Value::as_str);
                 let negotiated = crate::protocol::negotiate(requested, self.protocol_default);
                 JsonRpcResponse::ok(
-                    req.id,
+                    req.response_id(),
                     json!({
                         "protocolVersion": negotiated,
                         "serverInfo": { "name": "mcp-fedlex-reader", "version": env!("CARGO_PKG_VERSION") },
+
                         "capabilities": { "tools": {} }
                     }),
                 )
             }
 
             "tools/list" => JsonRpcResponse::ok(
-                req.id,
+                req.response_id(),
                 json!({ "tools": self.registry.list_tools(claims.role()) }),
             ),
 
@@ -271,7 +332,7 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                 // von keinem LLM-Parameter senkbar, ADR-002).
                 let Some(name) = req.params.get("name").and_then(Value::as_str) else {
                     return JsonRpcResponse::err(
-                        req.id,
+                        req.response_id(),
                         codes::INVALID_PARAMS,
                         "missing tool name",
                     );
@@ -292,9 +353,10 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                     // Lenkende Antwort statt Transport-Fehler, damit das LLM
                     // sich selbst drosseln kann.
                     return JsonRpcResponse::ok(
-                        req.id,
+                        req.response_id(),
                         json!({
                             "error": "rate limit exceeded",
+
                             "hint": "Quota erschoepft, bitte vor dem naechsten Aufruf warten.",
                             "retry_after_ms": decision.retry_after_ms,
                             "degraded": decision.degraded,
@@ -314,7 +376,7 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                         Ok(d) => Some(d),
                         Err(_) => {
                             return JsonRpcResponse::err(
-                                req.id,
+                                req.response_id(),
                                 codes::INVALID_PARAMS,
                                 "as_of must be an ISO date (YYYY-MM-DD)",
                             )
@@ -340,11 +402,11 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                         started.elapsed().as_millis() as u64,
                     )
                 );
-                JsonRpcResponse::ok(req.id, result)
+                JsonRpcResponse::ok(req.response_id(), result)
             }
 
             other => JsonRpcResponse::err(
-                req.id,
+                req.response_id(),
                 codes::METHOD_NOT_FOUND,
                 format!("unknown method `{other}`"),
             ),
@@ -403,7 +465,6 @@ where
     let cred = bearer(&headers);
     Json(svc.handle(cred.as_deref(), req, now_ms()).await).into_response()
 }
-
 
 /// GET `/sse`. Eröffnet den Ereignis-Strom und nennt die POST-Adresse.
 ///
@@ -614,7 +675,19 @@ mod tests {
 
     fn req(id: i64, method: &str, params: Value) -> JsonRpcRequest {
         JsonRpcRequest {
-            id: json!(id),
+            // `Some(Some(..))`: Feld vorhanden, Id nicht-null → Request mit Id.
+            id: Some(Some(json!(id))),
+            method: method.into(),
+            params,
+        }
+    }
+
+    /// Baut eine **Notification** (JSON-RPC ohne `id`-Feld) zum Prüfen der
+    /// Klassifikation (Runbook 5.1). Verhaltensneutralität: `response_id()`
+    /// bildet das fehlende `id` weiterhin auf `Null` ab.
+    fn notification(method: &str, params: Value) -> JsonRpcRequest {
+        JsonRpcRequest {
+            id: None,
             method: method.into(),
             params,
         }
@@ -926,6 +999,45 @@ mod tests {
         assert_eq!(resp.error.unwrap().code, codes::METHOD_NOT_FOUND);
     }
 
+    // --- Notification vs. Request (Migrations-Runbook Phase 5.1) ---
+
+    #[test]
+    fn notification_is_classified_and_maps_to_null_response_id() {
+        // Fehlendes `id`-Feld → Notification; response_id() bleibt aber `Null`
+        // (verhaltensneutral zum bisherigen `#[serde(default)]`-Verhalten).
+        let note = notification("notifications/initialized", json!({}));
+        assert!(note.is_notification());
+        assert_eq!(note.response_id(), Value::Null);
+    }
+
+    #[test]
+    fn explicit_null_id_is_a_request_not_a_notification() {
+        // `id: null` ist vorhanden → KEIN Notification, sondern Request mit Null-Id.
+        // `Some(None)`: äusseres Some = Feld vorhanden, inneres None = der Wert `null`.
+        let r = JsonRpcRequest {
+            id: Some(None),
+            method: "tools/list".into(),
+            params: json!({}),
+        };
+
+        assert!(!r.is_notification());
+        assert_eq!(r.response_id(), Value::Null);
+    }
+
+    #[test]
+    fn missing_id_field_deserializes_as_notification() {
+        // Wire-Realität: ein Body ohne `id` muss als Notification ankommen.
+        let parsed: JsonRpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+                .unwrap();
+        assert!(parsed.is_notification());
+
+        // Mit vorhandenem `id` (auch null) ist es ein Request.
+        let with_null: JsonRpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","id":null,"method":"tools/list"}"#).unwrap();
+        assert!(!with_null.is_notification());
+    }
+
     // HTTP-Ebene. Beweist die Verdrahtung von Header-Extraktion und Routing.
     #[tokio::test]
     async fn http_rpc_endpoint_enforces_auth_and_dispatches() {
@@ -1060,4 +1172,3 @@ mod tests {
         }
     }
 }
-
