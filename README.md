@@ -1,19 +1,27 @@
 # mcp-fedlex
 
-[![pipeline status](https://git.mindful-server.com/mindful-bio/mcp-fedlex/badges/main/pipeline.svg)](https://git.mindful-server.com/mindful-bio/mcp-fedlex/-/pipelines)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
-
 [![Release](https://img.shields.io/badge/release-v0.2.0-green.svg)](./CHANGELOG.md)
 [![MCP](https://img.shields.io/badge/MCP-2025--11--25-blue.svg)](./docs/adr/ADR-008-mcp-protocol-version-upgrade.md)
-
-
-
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-edition%202024-orange.svg)](./Cargo.toml)
 
 Ein **Model-Context-Protocol-Server für Fedlex** (Schweizer Bundesrecht) — ein
-mindful.bio-Produkt. Der Server gibt einem LLM **belegbaren** Zugriff auf
-konsolidiertes Bundesrecht: jede Antwort trägt ihre **Provenance** (ELI + Stichtag),
-der Stichtag wird serverseitig gestempelt und kann von keinem Tool-Argument
-verfälscht werden, und Mandanten/Quota sind serverseitig durchgesetzt.
+mindful.bio-Produkt. Er gibt einem LLM **belegbaren** Zugriff auf konsolidiertes
+Bundesrecht, statt es frei formulieren zu lassen:
+
+- 📌 **Provenance per Konstruktion** — jede Antwort trägt ihren `eli` und den
+  `valid_as_of`-Stichtag. Der Stichtag wird **serverseitig gestempelt** und kann
+  von keinem Tool-Argument verfälscht werden.
+- 🔒 **Least-Privilege-RBAC** — 22 Werkzeuge in drei Pools, nach Rolle gefiltert
+  (Reader ⊆ Navigator ⊆ Validator).
+- 🧯 **Mandantentrennung & Quota** — pro Token serverseitig durchgesetzt
+  (verteiltes Token-Bucket über Redis).
+- 🦀 **Rust, kein Netz im Test** — Unit-/Integrationstests laufen offline;
+  Live-Konformanz gegen Fedlex ist separat (`-- --ignored`).
+
+> **Hinweis:** Dieses GitHub-Repository ist ein **öffentlicher Spiegel**. Die
+> Quelle der Wahrheit (CI/CD, Releases) liegt auf einer selbst-gehosteten GitLab;
+> Issues und PRs hier werden gesichtet, aber dort verarbeitet.
 
 ## Was er kann
 
@@ -83,7 +91,6 @@ heute.
 Der Server spricht MCP über SSE/JSON-RPC (Protokoll `2025-11-25`; ein explizit
 `2024-11-05` anfragender Alt-Client erhält weiterhin `2024-11-05`):
 
-
 - **SSE-Strom:** `GET /sse` — liefert die POST-Adresse für Nachrichten.
 - **JSON-RPC:** `POST /rpc` — Methoden `initialize`, `tools/list`, `tools/call`.
 - **Auth:** Bearer-Token im `Authorization`-Header bei **jeder** Anfrage.
@@ -102,7 +109,6 @@ curl -s -X POST http://localhost:8080/rpc \
 > Ohne `protocolVersion` im Request handelt der Server die Default-Revision
 > `2025-11-25` aus. Ein Client, der explizit `"protocolVersion":"2024-11-05"`
 > sendet, erhält weiterhin `2024-11-05` (Rückwärtskompatibilität für Alt-Clients).
-
 
 Für Clients mit JSON-Konfiguration (z. B. Claude Desktop über einen SSE/HTTP-Bridge-
 Connector) genügen Basis-URL `http://localhost:8080` und das Bearer-Token.
@@ -134,14 +140,12 @@ Git-Tag gebunden) zusätzlich zu den rollenden Tags des internen Continuous-Depl
 docker pull registry.mindful-server.com/mindful-bio/mcp-fedlex:v0.2.0
 ```
 
-
 Releases sind in [`CHANGELOG.md`](./CHANGELOG.md) dokumentiert; die gemeldete
 `serverInfo.version` (siehe `initialize`) entspricht dem SemVer aus `Cargo.toml`.
 Ein neues Release entsteht durch einen Git-Tag `vX.Y.Z` — die CI baut daraus
 automatisch das gleichnamige Image.
 
 ## Aus dem Quellcode bauen & testen
-
 
 ```bash
 cargo build --workspace
@@ -161,4 +165,3 @@ cargo test  --workspace -- --ignored      # Live-Konformanz gegen Fedlex (Netzwe
 ## Lizenz
 
 [Apache-2.0](./LICENSE) © mindful.bio
-
