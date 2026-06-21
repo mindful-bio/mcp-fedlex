@@ -272,8 +272,9 @@ abgleichen, **ohne** fail-closed aufzuweichen.
 
 ## Phase 5 — Lifecycle & Capabilities (nur was die Spec verlangt)
 
-- [ ] **5.1 `notifications/initialized`** akzeptieren, falls Pflicht (No-op-tauglich, aber
-      spec-konform behandeln).
+- [x] **5.1 `notifications/initialized` — erledigt (a 2026-06-20, b/c 2026-06-21).** Akzeptiert als
+      spec-konformer No-op (kein `-32601`).
+
       > **⚠ Verifiziert nötig (2026-06-20):** Heute fehlt jegliche Notification-Behandlung.
       > `JsonRpcRequest.id` ist `#[serde(default)] Value` → eine Notification (ohne `id`) wird zu
       > `id = Value::Null`, und `McpService::handle` antwortet auf **jeden** Pfad — eine unbekannte
@@ -296,19 +297,33 @@ abgleichen, **ohne** fail-closed aufzuweichen.
       > (`notification_is_classified_and_maps_to_null_response_id`,
       > `explicit_null_id_is_a_request_not_a_notification`,
       > `missing_id_field_deserializes_as_notification`). `cargo test -p mcp-reader` → **144 unit +
-      > 6 baseline + 1 lexicon** grün. **Offen bleiben (b)** kein Response-Body bei Notifications und
-      > **(c)** der HTTP-202/204-No-Body-Pfad — beide erst mit dem Streamable-HTTP-Endpoint (3.2 Rest).
-- [ ] **5.2 `ping`** beantworten, falls Pflicht (echte Request/Response **mit** `id` —
-      nur ein zusätzlicher Match-Arm, von 5.1 unberührt).
+      > 6 baseline + 1 lexicon** grün.
+      > **Nachtrag — (b) & (c) erledigt (2026-06-21):** Beide Restpunkte sind im Code **bereits
+      > umgesetzt und getestet** (das Runbook hinkte dem Code nach — Doku-Drift in Gegenrichtung,
+      > hier korrigiert). **(b)** `rpc_handler` erzeugt für Notifications **keinen** Response-Body;
+      > **(c)** der HTTP-Pfad quittiert sie mit **`StatusCode::ACCEPTED` (202) ohne Body**
+      > (`transport.rs`, `if req.is_notification()`). Abgesichert durch die Klassifikationstests
+      > oben plus `initialized_notification_as_request_is_noop_not_unknown`.
+- [x] **5.2 `ping` — erledigt (2026-06-21).** `transport.rs` beantwortet `ping` als echten Request
+      mit leerem Result (`json!({})`) und gespiegelter `id`; Test
+      `ping_returns_empty_result_echoing_id`. Reiner additiver Match-Arm, von 5.1 unberührt.
+- [x] **5.3 Capabilities ehrlich — erledigt (2026-06-21).** `initialize` kündigt weiterhin **nur**
+      `{ "tools": {} }` an — kein `resources`/`prompts`/`logging`, solange nicht implementiert. Der
+      Baseline-Test `initialize_handshake_negotiates_target_revision` erzwingt genau diese minimale
+      Capability-Menge (Deklaration == Verhalten). `ping`/`notifications/initialized` sind
+      Lifecycle-Methoden, **kein** Capability-Flag — daher bewusst nicht angekündigt.
+- [x] **5.4 Optionale Features bewertet — erledigt (2026-06-21, bewusster Ausschluss).** Strukturierte
+      Tool-Outputs (`outputSchema`/`structuredContent`) und Elicitation sind für den Reader **nicht**
+      übernommen: Der Provenance-Block (`{data, provenance}`) ist bereits das strukturierte Vertrags-
+      format, und Elicitation (server-initiierte Rückfragen) widerspricht dem zustandslosen,
+      fail-closed Request/Response-Modell (ADR-002). Nicht migrationskritisch → ausgeschlossen.
 
-- [ ] **5.3 Capabilities ehrlich.** In `initialize` nur ankündigen, was getestet ist. `tools`
-      ggf. um neue Flags der Ziel-Revision erweitern — **kein** `resources`/`prompts`, solange
-      nicht implementiert (bewusste Abgrenzung, analog Lexikon-Projektion).
-- [ ] **5.4 Optionale Features bewerten** (strukturierte Tool-Outputs, Elicitation): pro Feature
-      Nutzen vs. Aufwand; Ausschluss begründet dokumentieren.
-
-**Gate 5:** Pflicht-Lifecycle grün; Capabilities-Deklaration == tatsächliches Verhalten.
+**Gate 5:** ✅ **grün (2026-06-21).** Pflicht-Lifecycle (`ping` 5.2, `notifications/initialized`
+5.1b/c) implementiert & getestet; Capabilities-Deklaration == tatsächliches Verhalten (5.3); optionale
+Features begründet ausgeschlossen (5.4). `cargo test -p mcp-reader` → **146 unit + 8 baseline + 1
+lexicon** grün.
 **Rollback:** Einzelne Handler sind additiv; selektiv revertierbar.
+
 
 ---
 
