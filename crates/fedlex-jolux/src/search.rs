@@ -1,7 +1,7 @@
 //! Primitive: Erlass-Suche nach Titel/Stichwort (Rulebook J3).
 
-use crate::client::{val, Language, SparqlClient, PREFIXES};
-use crate::{error::JoluxError, FEDLEX_BASE};
+use crate::client::{Language, PREFIXES, SparqlClient, val};
+use crate::{FEDLEX_BASE, error::JoluxError};
 use serde::{Deserialize, Serialize};
 
 /// Ein Such-Treffer: ein Erlass, der zum Suchbegriff passt.

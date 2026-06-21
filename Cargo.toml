@@ -11,9 +11,12 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
+version = "0.2.0"
+
+edition = "2024"
+
+license = "Apache-2.0"
+
 authors = ["mindful.bio"]
 repository = "https://github.com/mindful-bio/mcp-fedlex"
 

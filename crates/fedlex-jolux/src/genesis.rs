@@ -1,7 +1,7 @@
 //! Primitive: Entstehungsgeschichte — Drafts, Vernehmlassungen, Dokumente
 //! (Lexikon JLX-GEN-01/02/03, Rulebook J10/J11).
 
-use crate::client::{val, SparqlClient, PREFIXES};
+use crate::client::{PREFIXES, SparqlClient, val};
 use crate::{eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};
@@ -56,10 +56,10 @@ pub async fn get_drafts(
                 drafts.last_mut().expect("just pushed")
             }
         };
-        if let Some(r) = val(b, "result") {
-            if !entry.resulting_resources.iter().any(|x| x == r) {
-                entry.resulting_resources.push(r.to_string());
-            }
+        if let Some(r) = val(b, "result")
+            && !entry.resulting_resources.iter().any(|x| x == r)
+        {
+            entry.resulting_resources.push(r.to_string());
         }
     }
 

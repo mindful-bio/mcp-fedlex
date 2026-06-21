@@ -4,7 +4,7 @@
 //! sie bedeutungslos. Dies ist ein **reiner Helfer** ohne Provenance, da ein
 //! Vokabular-Label keine Rechtsaussage ist.
 
-use crate::client::{val, Language, SparqlClient, PREFIXES};
+use crate::client::{Language, PREFIXES, SparqlClient, val};
 use crate::error::JoluxError;
 
 const VOCAB_Q: &str = r#"SELECT ?label WHERE {

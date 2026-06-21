@@ -266,10 +266,11 @@ mod tests {
         assert_eq!(m.language.as_deref(), Some("de"));
         assert_eq!(m.author.as_deref(), Some("Bundeskanzlei"));
         assert_eq!(m.expression_count, 1);
-        assert!(m
-            .dates
-            .iter()
-            .any(|(n, d)| n == "jolux:dateDocument" && d == "2018-01-01"));
+        assert!(
+            m.dates
+                .iter()
+                .any(|(n, d)| n == "jolux:dateDocument" && d == "2018-01-01")
+        );
     }
 
     #[test]

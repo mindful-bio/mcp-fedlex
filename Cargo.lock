@@ -572,7 +572,7 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "fedlex-akn"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fedlex-core",
  "reqwest",
@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "fedlex-bridge"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fedlex-akn",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "fedlex-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -610,7 +610,7 @@ dependencies = [
 
 [[package]]
 name = "fedlex-jolux"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fedlex-core",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "fedlex-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fedlex-core",
  "oxigraph",
@@ -639,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "fedlex-telemetry"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fedlex-core",
  "proptest",
@@ -1300,7 +1300,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "mcp-reader"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",

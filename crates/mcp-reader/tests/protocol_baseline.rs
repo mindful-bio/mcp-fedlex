@@ -36,13 +36,13 @@ use std::sync::Arc;
 use fedlex_bridge::{AknFetcher, MockXmlSource};
 use fedlex_jolux::MockSparqlClient;
 use fedlex_store::token_bucket::{Acquisition, BucketParams};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use time::macros::date;
 
 use mcp_reader::{
-    register_discovery_tools, register_metadata_tools, register_navigation_tools, ClaimRecord,
-    JsonRpcRequest, McpService, QuotaBackend, QuotaError, RateLimiter, Registry, Role,
-    StaticAuthResolver, TemporalResolver,
+    ClaimRecord, JsonRpcRequest, McpService, QuotaBackend, QuotaError, RateLimiter, Registry, Role,
+    StaticAuthResolver, TemporalResolver, register_discovery_tools, register_metadata_tools,
+    register_navigation_tools,
 };
 
 // ============================================================

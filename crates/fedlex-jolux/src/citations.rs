@@ -5,7 +5,7 @@
 //! nur 0–48 % (J7.3) — vollständige Zitationsnetze brauchen den **Merge**
 //! beider Quellen.
 
-use crate::client::{val, SparqlClient, PREFIXES};
+use crate::client::{PREFIXES, SparqlClient, val};
 use crate::{eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};

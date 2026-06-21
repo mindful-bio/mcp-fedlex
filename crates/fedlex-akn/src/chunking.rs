@@ -1,7 +1,7 @@
 //! Primitive: Hollowing & RAG-Chunking (Lexikon AKN-CHK-01/02, Rulebook X14/X20).
 
 use crate::components::{get_component_document, list_components};
-use crate::doc::{classify_pattern, get_frbr_metadata, DocPattern};
+use crate::doc::{DocPattern, classify_pattern, get_frbr_metadata};
 use crate::dom::{AknDocument, NodeId};
 use crate::error::AknError;
 use crate::structure::section_path_of;

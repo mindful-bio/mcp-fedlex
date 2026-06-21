@@ -343,10 +343,12 @@ fn akn_chk_01_hollowing_eng() {
         hollowed.len()
     );
     // X20.2: Eltern-Platzhalter statt redundantem Text.
-    assert!(hollowed
-        .iter()
-        .filter(|h| !h.is_leaf)
-        .all(|h| h.text.starts_with("[Siehe Unterelemente:")));
+    assert!(
+        hollowed
+            .iter()
+            .filter(|h| !h.is_leaf)
+            .all(|h| h.text.starts_with("[Siehe Unterelemente:"))
+    );
 }
 
 #[test]

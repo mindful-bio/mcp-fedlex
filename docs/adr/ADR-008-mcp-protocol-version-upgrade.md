@@ -149,7 +149,8 @@ nicht.
 | 10 | stderr-Logging-Klarstellung (stdio) | GEÄNDERT | irrelevant (wir nutzen HTTP, nicht stdio) |
 | 11 | `Implementation.description` optional | NEU | optional (in `serverInfo` ergänzbar) |
 | 12 | **HTTP 403** bei ungültigem `Origin`-Header (Streamable HTTP) | GEÄNDERT | **betrifft uns** (Transport-Security §B-2) |
-| 13 | Input-Validation-Fehler als **Tool-Execution-Error** statt Protocol-Error | GEÄNDERT | **betrifft uns (teilweise positiv)** — Tool-**Dispatch**-Fehler sind bereits graceful `{ error, hint }` im `result` (ADR-006); **aber** zwei `tools/call`-Validierungspfade liefern noch Protocol-Error `-32602` (s. §B-5-Notiz) |
+| 13 | Input-Validation-Fehler als **Tool-Execution-Error** statt Protocol-Error | GEÄNDERT | **erledigt (2026-06-21)** — beide `tools/call`-Validierungspfade (fehlendes `name`, ungültiges `as_of`) liefern jetzt in-band graceful `{ error, hint }` im `result`, formgleich zu Dispatch (ADR-006) und Quota-Pfad; `INVALID_PARAMS` (`-32602`) wurde aus `transport.rs` entfernt. Tests: `missing_tool_name_is_in_band_tool_error_not_protocol_error`, `invalid_as_of_is_in_band_tool_error_not_protocol_error` |
+
 | 14 | Polling-SSE-Streams / SEP-1699-Klarstellungen | GEÄNDERT | optional |
 | 15 | `WWW-Authenticate` optional + `.well-known`-Fallback (RFC 9728) | GEÄNDERT | optional (Auth) |
 | 16 | Default-Werte in Elicitation-Schemas | NEU | irrelevant |
@@ -161,9 +162,13 @@ nicht.
 1. **Transport (§B-2).** HTTP+SSE → **Streamable HTTP** (single MCP-Endpoint mit
    POST+GET), **`MCP-Protocol-Version`-Header** auf Folge-Requests, **400** bei
    ungültiger/unbekannter Protokollversion, **403** bei ungültigem `Origin`.
-   `/rpc` bleibt **additiv** erhalten (beide Konsumenten — ansV und
-   syllogismus-fedlex — rufen `/rpc` ohne `initialize`, siehe
-   Runbook 55_MIGRATION §0.4). — *grösster, breaking-naher Brocken.*
+
+   **Zielzustand ist der saubere `2025-11-25`-Transport** — nicht ein Dauer-
+   Doppelbetrieb. Während der Migration kann `/rpc` als Übergangs-Schritt
+   stehenbleiben, doch die Konsumenten (ansV, syllogismus-fedlex) werden auf den
+   neuen Endpoint nachgezogen (Runbook 55_MIGRATION §0.4); Rückwärtskompatibilität
+   ist **kein Ziel**. — *grösster Brocken.*
+
 2. **Handshake/Negotiation (§B-1).** `initialize`: Client sendet Version; Server
    antwortet bei Support mit **derselben**, sonst mit eigener neuester. Single
    Source of Truth: `SUPPORTED_PROTOCOL_VERSIONS`.
@@ -294,9 +299,13 @@ Reihenfolge bewusst: Handshake → Transport → Auth → optionale Features.
 (Liste erweitern statt Konstante suchen); neue Client-Fähigkeiten nutzbar.
 
 **Negativ / Risiko.** Transport-Deprecation (HTTP+SSE → Streamable HTTP) ist der
-grösste Brocken und potenziell breaking für bestehende Clients — daher
-Übergangs-Doppelbetrieb in B-2 erwägen. Auth-Mapping kann zusätzlichen Aufwand
-bringen, darf aber das fail-closed-Prinzip (ADR-002) nicht aufweichen.
+grösste Brocken und potenziell breaking für bestehende Clients. **Zielzustand ist
+allein der saubere `2025-11-25`-Transport** — kein Dauer-Doppelbetrieb; `/rpc` darf
+während der Migration übergangsweise bestehen bleiben, doch die Konsumenten (ansV,
+syllogismus-fedlex) werden auf den neuen Pfad nachgezogen, statt den Server an deren
+Alt-Verhalten zu binden. Auth-Mapping kann zusätzlichen Aufwand bringen, darf aber
+das fail-closed-Prinzip (ADR-002) nicht aufweichen.
+
 
 **Abgrenzung.** Dieses ADR ändert **keinen** Code; es ist der genehmigte Plan.
 Bis `v0.2.0` bleibt der Handshake ehrlich bei `2024-11-05` (= was getestet läuft).

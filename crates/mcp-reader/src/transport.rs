@@ -18,22 +18,26 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{header::AUTHORIZATION, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header::AUTHORIZATION};
 
+use axum::Router;
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
-use axum::Router;
 
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use time::macros::format_description;
+use serde_json::{Value, json};
 use time::Date;
+use time::macros::format_description;
 
 use fedlex_telemetry::{AttributeAllowlist, SpanScrubber};
 
 use crate::auth::{AuthResolver, VerifiedClaims};
+use crate::protocol::{
+    OriginOutcome, ProtocolHeaderOutcome, allowed_origins_from_env, classify_origin,
+    classify_protocol_header,
+};
 use crate::quota::QuotaBackend;
 use crate::quota::RateLimiter;
 use crate::registry::Registry;
@@ -46,8 +50,12 @@ mod codes {
     pub const PARSE_ERROR: i32 = -32700;
     /// Methode unbekannt.
     pub const METHOD_NOT_FOUND: i32 = -32601;
-    /// Parameter ungültig.
-    pub const INVALID_PARAMS: i32 = -32602;
+    // Hinweis (Delta #13, ADR-008): Es gibt KEINEN `INVALID_PARAMS` (-32602)
+    // mehr. Input-Validation eines `tools/call` ist ein Tool-Execution-Error
+    // und wird in-band als graceful `{ error, hint }` im `result` zurückgegeben,
+    // nicht als JSON-RPC-Protocol-Error. Die Konstante wurde bewusst entfernt,
+    // damit kein Pfad versehentlich auf das alte Verhalten zurückfällt.
+    //
     /// Credential fehlt oder ist ungültig (anwendungsspezifisch).
     pub const UNAUTHORIZED: i32 = -32001;
 }
@@ -236,6 +244,11 @@ pub struct McpService<A: AuthResolver, B: QuotaBackend> {
     /// (Migrations-Runbook Phase 2). Aus der Umgebung (`MCP_PROTOCOL_DEFAULT`)
     /// aufgelöst, fällt fail-safe auf [`crate::protocol::DEFAULT_PROTOCOL_VERSION`].
     protocol_default: &'static str,
+    /// Allowlist erlaubter `Origin`-Header für den Streamable-HTTP-Pfad (`/mcp`).
+    /// Aus `MCP_ALLOWED_ORIGINS` aufgelöst (DNS-Rebinding-Schutz, ADR-008).
+    /// Leer ⇒ fail-safe: jeder **gesetzte** `Origin` wird mit 403 abgelehnt,
+    /// header-lose Server-zu-Server-Clients bleiben unberührt.
+    allowed_origins: Vec<String>,
 }
 
 impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
@@ -253,6 +266,7 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
             limiter,
             temporal,
             protocol_default: crate::protocol::default_protocol_version(),
+            allowed_origins: allowed_origins_from_env(),
         }
     }
 
@@ -271,7 +285,34 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
             limiter,
             temporal,
             protocol_default,
+            allowed_origins: allowed_origins_from_env(),
         }
+    }
+
+    /// Wie [`Self::with_protocol_default`], aber zusätzlich mit explizit
+    /// gesetzter Origin-Allowlist (deterministisch für Tests des
+    /// Streamable-HTTP-Pfads, ohne Umgebungsvariablen).
+    pub fn with_protocol_and_origins(
+        registry: Registry,
+        auth: A,
+        limiter: RateLimiter<B>,
+        temporal: TemporalResolver,
+        protocol_default: &'static str,
+        allowed_origins: Vec<String>,
+    ) -> Self {
+        Self {
+            registry,
+            auth,
+            limiter,
+            temporal,
+            protocol_default,
+            allowed_origins,
+        }
+    }
+
+    /// Die konfigurierte Origin-Allowlist (für den Streamable-HTTP-Handler).
+    fn allowed_origins(&self) -> &[String] {
+        &self.allowed_origins
     }
 
     /// Verarbeitet eine JSON-RPC-Anfrage Ende zu Ende.
@@ -295,7 +336,7 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
         let claims = match self.auth.verify(cred) {
             Ok(c) => c,
             Err(e) => {
-                return JsonRpcResponse::err(req.response_id(), codes::UNAUTHORIZED, e.to_string())
+                return JsonRpcResponse::err(req.response_id(), codes::UNAUTHORIZED, e.to_string());
             }
         };
 
@@ -344,10 +385,18 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                 // aus dem registrierten Pool abgeleitet (claim-/pool-gebunden,
                 // von keinem LLM-Parameter senkbar, ADR-002).
                 let Some(name) = req.params.get("name").and_then(Value::as_str) else {
-                    return JsonRpcResponse::err(
+                    // Delta #13 (ADR-008): Input-Validation eines `tools/call` ist ein
+                    // **Tool-Execution-Error**, kein Protocol-Error. Wir antworten
+                    // in-band als graceful `{ error, hint }` im `result` — formgleich
+                    // zum Dispatch (ADR-006) und zum Quota-Pfad — statt mit `-32602`.
+                    // So kann das LLM sich selbst korrigieren, ohne dass der Aufruf
+                    // auf JSON-RPC-Ebene fehlschlägt.
+                    return JsonRpcResponse::ok(
                         req.response_id(),
-                        codes::INVALID_PARAMS,
-                        "missing tool name",
+                        json!({
+                            "error": "missing tool name",
+                            "hint": "tools/call erwartet das Feld `name` mit dem Tool-Namen.",
+                        }),
                     );
                 };
 
@@ -383,16 +432,22 @@ impl<A: AuthResolver, B: QuotaBackend> McpService<A, B> {
                     .cloned()
                     .unwrap_or_else(|| json!({}));
 
-                // Optionaler Stichtag. Ungültiges Datum ist ein Parameterfehler.
+                // Optionaler Stichtag. Ein ungültiges `as_of` ist Input-Validation
+                // EINES tools/call und damit ein **Tool-Execution-Error** (Delta #13,
+                // ADR-008): in-band als graceful `{ error, hint }` im `result`,
+                // formgleich zu Dispatch (ADR-006) und Quota-Pfad — nicht als
+                // Protocol-Error `-32602`.
                 let requested_as_of = match req.params.get("as_of").and_then(Value::as_str) {
                     Some(s) => match Date::parse(s, format_description!("[year]-[month]-[day]")) {
                         Ok(d) => Some(d),
                         Err(_) => {
-                            return JsonRpcResponse::err(
+                            return JsonRpcResponse::ok(
                                 req.response_id(),
-                                codes::INVALID_PARAMS,
-                                "as_of must be an ISO date (YYYY-MM-DD)",
-                            )
+                                json!({
+                                    "error": "as_of must be an ISO date (YYYY-MM-DD)",
+                                    "hint": "Stichtag im Format JJJJ-MM-TT angeben, z. B. 2024-01-01.",
+                                }),
+                            );
                         }
                     },
                     None => None,
@@ -490,6 +545,78 @@ where
     Json(svc.handle(cred.as_deref(), req, now_ms()).await).into_response()
 }
 
+/// Header-Name des Streamable-HTTP-Transports für die Protokollversion
+/// (`MCP-Protocol-Version`, Spec `2025-06-18` #8 / `2025-11-25` #12).
+const MCP_PROTOCOL_VERSION_HEADER: &str = "mcp-protocol-version";
+/// Header-Name `Origin` (DNS-Rebinding-Schutz).
+const ORIGIN_HEADER: &str = "origin";
+
+/// Liest einen Header als getrimmten `&str` (sofern vorhanden und gültiges UTF-8).
+fn header_str<'h>(headers: &'h HeaderMap, name: &str) -> Option<&'h str> {
+    headers.get(name).and_then(|v| v.to_str().ok())
+}
+
+/// POST `/mcp`. Der **Streamable-HTTP-Endpoint** der Ziel-Revision `2025-11-25`
+/// (ADR-008 §B-2). Im Unterschied zum Legacy-`/rpc` setzt dieser Pfad die zwei
+/// Transport-Wächter der Spec **live** durch, bevor irgendeine Arbeit geschieht:
+///
+/// 1. **`Origin`-Prüfung → HTTP 403** (DNS-Rebinding-Schutz, `2025-11-25` #12).
+///    Ein gesetzter `Origin` ausserhalb der Allowlist wird hart abgewiesen.
+///    Fehlt der Header (Server-zu-Server-Clients), bleibt der Aufruf erlaubt.
+/// 2. **`MCP-Protocol-Version`-Header → HTTP 400** bei gesetzter, aber **nicht**
+///    unterstützter Version (`2025-06-18` #8). Fehlt der Header, gilt
+///    Spec-SHOULD-Rückwärtskompatibilität (kein Fehler).
+///
+/// Die Reihenfolge ist bewusst: Origin (Netzwerk-Herkunft) vor Versions-Semantik.
+/// Notifications (kein `id`) werden — wie auf `/rpc` — mit **202** ohne Body
+/// quittiert. Alles Übrige läuft durch dieselbe [`McpService::handle`]-Kette
+/// (Auth, Quota, Provenance), sodass der einzige Unterschied zu `/rpc` die
+/// Transport-Wächter sind.
+async fn mcp_handler<A, B>(
+    State(svc): State<Arc<McpService<A, B>>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response
+where
+    A: AuthResolver + Send + Sync + 'static,
+    B: QuotaBackend + Send + Sync + 'static,
+{
+    // (1) Origin zuerst: fremde Browser-Herkunft wird hart mit 403 abgewiesen,
+    //     bevor Body oder Auth überhaupt betrachtet werden.
+    if let OriginOutcome::Forbidden =
+        classify_origin(header_str(&headers, ORIGIN_HEADER), svc.allowed_origins())
+    {
+        return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
+    }
+
+    // (2) Protokollversion im Header: gesetzt-aber-unbekannt → 400. Fehlt der
+    //     Header, gilt Rückwärtskompatibilität (Spec-SHOULD, kein Fehler).
+    if let ProtocolHeaderOutcome::Unsupported =
+        classify_protocol_header(header_str(&headers, MCP_PROTOCOL_VERSION_HEADER))
+    {
+        return (StatusCode::BAD_REQUEST, "unsupported MCP-Protocol-Version").into_response();
+    }
+
+    let req: JsonRpcRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return Json(JsonRpcResponse::err(
+                Value::Null,
+                codes::PARSE_ERROR,
+                e.to_string(),
+            ))
+            .into_response();
+        }
+    };
+    // Notifications: 202 ohne Body (wie /rpc, Runbook 5.1).
+    if req.is_notification() {
+        return StatusCode::ACCEPTED.into_response();
+    }
+
+    let cred = bearer(&headers);
+    Json(svc.handle(cred.as_deref(), req, now_ms()).await).into_response()
+}
+
 /// GET `/sse`. Eröffnet den Ereignis-Strom und nennt die POST-Adresse.
 ///
 /// Konvention des MCP-SSE-Transports. Der Server sendet zuerst ein
@@ -510,6 +637,9 @@ where
     Router::new()
         .route("/sse", get(sse_handler))
         .route("/rpc", post(rpc_handler::<A, B>))
+        // Streamable-HTTP-Endpoint der Ziel-Revision `2025-11-25` (ADR-008 §B-2):
+        // setzt `Origin` (→403) und `MCP-Protocol-Version` (→400) live durch.
+        .route("/mcp", post(mcp_handler::<A, B>))
         .with_state(service)
 }
 
@@ -894,7 +1024,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_as_of_is_param_error() {
+    async fn invalid_as_of_is_in_band_tool_error_not_protocol_error() {
+        // Delta #13 (ADR-008): Input-Validation eines `tools/call` ist ein
+        // Tool-Execution-Error. Ein ungültiges `as_of` kommt daher als graceful
+        // `{ error, hint }` im `result` zurück — NICHT als Protocol-Error `-32602`.
         let svc = service(MockBackend::allowing());
         let resp = svc
             .handle(
@@ -907,7 +1040,50 @@ mod tests {
                 0,
             )
             .await;
-        assert_eq!(resp.error.unwrap().code, codes::INVALID_PARAMS);
+        assert!(
+            resp.error.is_none(),
+            "ungültiges as_of darf KEIN JSON-RPC-Protocol-Error sein (Delta #13): {:?}",
+            resp.error
+        );
+        let result = resp.result.expect("Tool-Execution-Error trägt ein result");
+        assert!(
+            result["error"]
+                .as_str()
+                .unwrap()
+                .contains("as_of must be an ISO date"),
+            "in-band error muss den as_of-Hinweis tragen: {result}"
+        );
+        assert!(
+            result["hint"].is_string(),
+            "Hinweis fürs LLM fehlt: {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_tool_name_is_in_band_tool_error_not_protocol_error() {
+        // Delta #13 (ADR-008): fehlendes `name` ist Input-Validation eines
+        // `tools/call` → graceful `{ error, hint }` im `result`, kein `-32602`.
+        let svc = service(MockBackend::allowing());
+        let resp = svc
+            .handle(Some("token-a"), req(1, "tools/call", json!({})), 0)
+            .await;
+        assert!(
+            resp.error.is_none(),
+            "fehlendes name darf KEIN JSON-RPC-Protocol-Error sein (Delta #13): {:?}",
+            resp.error
+        );
+        let result = resp.result.expect("Tool-Execution-Error trägt ein result");
+        assert!(
+            result["error"]
+                .as_str()
+                .unwrap()
+                .contains("missing tool name"),
+            "in-band error muss den missing-name-Hinweis tragen: {result}"
+        );
+        assert!(
+            result["hint"].is_string(),
+            "Hinweis fürs LLM fehlt: {result}"
+        );
     }
 
     #[tokio::test]
@@ -1167,7 +1343,7 @@ mod tests {
     #[tokio::test]
     async fn rpc_handler_keeps_200_json_for_all_paths() {
         use axum::body::Body;
-        use axum::http::{header::CONTENT_TYPE, Request, StatusCode};
+        use axum::http::{Request, StatusCode, header::CONTENT_TYPE};
         use tower::ServiceExt;
 
         let svc = Arc::new(service(MockBackend::allowing()));
@@ -1225,5 +1401,219 @@ mod tests {
             let v: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(v["jsonrpc"], "2.0", "{label}: jsonrpc-Marker bleibt");
         }
+    }
+
+    // --- Streamable-HTTP-Endpoint `/mcp` (ADR-008 §B-2, Phase 3) ---
+
+    /// Baut einen Dienst mit explizit gesetzter Origin-Allowlist (ohne Umgebung).
+    fn service_with_origins(
+        backend: MockBackend,
+        origins: Vec<String>,
+    ) -> McpService<StaticAuthResolver, MockBackend> {
+        let mut registry = Registry::new();
+        registry.register(Arc::new(ReadArticle));
+        let limiter = RateLimiter::with_policy(backend, QuotaPolicy::default());
+        let temporal = TemporalResolver::new(time::macros::date!(2024 - 01 - 01));
+        McpService::with_protocol_and_origins(
+            registry,
+            auth(),
+            limiter,
+            temporal,
+            crate::protocol::DEFAULT_PROTOCOL_VERSION,
+            origins,
+        )
+    }
+
+    #[tokio::test]
+    async fn mcp_endpoint_rejects_foreign_origin_with_403() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        // Allowlist kennt nur app.mindful.bio; ein fremder Origin wird mit 403
+        // abgewiesen, bevor Auth oder Body überhaupt zählen (DNS-Rebinding-Schutz).
+        let svc = Arc::new(service_with_origins(
+            MockBackend::allowing(),
+            vec!["https://app.mindful.bio".to_string()],
+        ));
+        let app = router(svc);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("origin", "https://evil.example")
+                    .header("authorization", "Bearer token-a")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0", "id": 1, "method": "tools/list"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn mcp_endpoint_allows_listed_origin() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let svc = Arc::new(service_with_origins(
+            MockBackend::allowing(),
+            vec!["https://app.mindful.bio".to_string()],
+        ));
+        let app = router(svc);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("origin", "https://app.mindful.bio")
+                    .header("authorization", "Bearer token-a")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0", "id": 1, "method": "tools/list"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["result"]["tools"][0]["name"], "read_article");
+    }
+
+    #[tokio::test]
+    async fn mcp_endpoint_without_origin_is_allowed_for_server_clients() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        // Server-zu-Server-Clients (ansV) senden keinen Origin → nicht blockiert,
+        // selbst bei leerer Allowlist.
+        let svc = Arc::new(service_with_origins(MockBackend::allowing(), vec![]));
+        let app = router(svc);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer token-a")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0", "id": 1, "method": "tools/list"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn mcp_endpoint_rejects_unsupported_protocol_header_with_400() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        // Gesetzter, aber nicht unterstützter MCP-Protocol-Version-Header → 400.
+        let svc = Arc::new(service_with_origins(MockBackend::allowing(), vec![]));
+        let app = router(svc);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer token-a")
+                    .header("mcp-protocol-version", "2099-01-01")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0", "id": 1, "method": "tools/list"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn mcp_endpoint_accepts_supported_protocol_header() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let svc = Arc::new(service_with_origins(MockBackend::allowing(), vec![]));
+        let app = router(svc);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer token-a")
+                    .header("mcp-protocol-version", "2025-11-25")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0", "id": 1, "method": "tools/list"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn mcp_endpoint_notification_is_202_no_body() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let svc = Arc::new(service_with_origins(MockBackend::allowing(), vec![]));
+        let app = router(svc);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0", "method": "notifications/initialized"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
     }
 }

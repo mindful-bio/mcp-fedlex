@@ -7,6 +7,26 @@ und das Projekt folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-21
+
+MCP-Protokoll-Upgrade auf die stabile Spec-Revision `2025-11-25` (ADR-008
+abgeschlossen). Der Konsumenten-Vertrag bleibt additiv: bestehende Clients
+(ansV, syllogismus-fedlex) laufen unverändert weiter.
+
+### Added
+
+- **Streamable-HTTP-Transport (`POST /mcp`)** additiv neben `/rpc` (ADR-008 §B,
+  Runbook Phase 3). Der neue Endpoint setzt die zwei Transport-Wächter der
+  Revision `2025-11-25` **vor jeder Arbeit** durch:
+  - **`Origin`-Prüfung → HTTP 403** bei einem `Origin` ausserhalb der
+    Allowlist `MCP_ALLOWED_ORIGINS` (DNS-Rebinding-Schutz, fail-closed);
+  - **`MCP-Protocol-Version`-Header → HTTP 400** bei gesetztem, nicht
+    unterstütztem Wert.
+  Fehlende Header bleiben rückwärtskompatibel (Server-zu-Server-Clients ohne
+  `Origin`/Header unverändert erlaubt). Klassifikatoren `classify_origin` /
+  `classify_protocol_header` in `protocol.rs` mit Unit-Tests; sechs HTTP-Tests
+  für `/mcp` (403/allowed/no-origin/400/supported/202-notification).
+
 ### Changed
 
 - **`tools/list` liefert nun `inputSchema` zusätzlich zu `schema`** (additiver
@@ -29,16 +49,18 @@ und das Projekt folgt [Semantic Versioning](https://semver.org/lang/de/).
   `2024-11-05` → exakt `2024-11-05`. Spec-Grundlage: ADR-008 §A, Runbook
   `docs/55_MIGRATION_mcp_protocol_upgrade.md`.
 
-### Geplant (v0.2.0)
+- **Input-Validation `2025-11-25`-konform**: beide `tools/call`-Pfade (fehlender
+  `name`, ungültiges `as_of`) liefern jetzt einen in-band Tool-Execution-Error
+  (`{ error, hint }` im `result`) statt eines `-32602`-Protokollfehlers; die
+  Konstante `INVALID_PARAMS` wurde aus `transport.rs` entfernt. Eigene Tests
+  sichern beide Pfade.
 
-
-- **Streamable-HTTP-Transport** additiv neben `/rpc` samt
-  `MCP-Protocol-Version`-Header-Pfad (Runbook Phase 3 Rest, ADR-008 §B). Der
-  Handshake ist bereits auf `2025-11-25`; der Tag `v0.2.0` folgt erst, wenn
-  Transport-Doppelpfad und `inputSchema`-Bereinigung (Phase 9) abgeschlossen
-  sind und ADR-008 geschlossen ist (Runbook 8.4/8.5).
+- **Lifecycle vervollständigt**: `id` ist nun `Option<Option<Value>>` mit
+  `is_notification()`; der `rpc_handler` quittiert Notifications mit **HTTP 202
+  ohne Body**, `ping` und `notifications/initialized` sind eigene Match-Arme.
 
 ## [0.1.0] - 2026-06-20
+
 
 
 Erste getaggte Version. Der `mcp-reader` ist produktiv ausgerollt und gegen

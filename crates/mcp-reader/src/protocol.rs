@@ -141,6 +141,64 @@ pub fn classify_protocol_header(header: Option<&str>) -> ProtocolHeaderOutcome {
     }
 }
 
+/// Klassifikation des HTTP-Headers `Origin` für den Streamable-HTTP-Transport
+/// (Spec `2025-11-25` #12, ADR-008). Dient dem Schutz vor **DNS-Rebinding**:
+/// Ein Browser, der von einer fremden Seite aus auf den lokal/intern
+/// erreichbaren Reader zugreift, sendet einen `Origin`-Header, den der Server
+/// gegen eine Allowlist prüfen muss.
+///
+/// **Abgrenzung zu den Alt-Clients:** Server-zu-Server-Konsumenten (ansV,
+/// syllogismus-fedlex) sind **keine** Browser und senden **keinen** `Origin`.
+/// Für sie ist [`OriginOutcome::Absent`] der Normalfall → erlaubt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OriginOutcome {
+    /// Kein `Origin`-Header → Nicht-Browser-Aufruf (Alt-Clients). **Erlaubt.**
+    Absent,
+    /// `Origin` ist in der Allowlist → **erlaubt**.
+    Allowed,
+    /// `Origin` ist gesetzt, aber **nicht** in der Allowlist → Spec verlangt
+    /// HTTP **403** (DNS-Rebinding-Schutz).
+    Forbidden,
+}
+
+/// Klassifiziert den Roh-Wert des `Origin`-Headers gegen eine Allowlist.
+///
+/// `header` ist `None`, wenn der Header fehlt (Nicht-Browser-Aufruf). `allowed`
+/// ist die konfigurierte Allowlist erlaubter Origins (exakter Match, getrimmt).
+/// Ein **leerer** `Origin`-Wert wird wie „fehlt" behandelt.
+///
+/// **Fail-safe-Default:** Ist die Allowlist leer (kein `MCP_ALLOWED_ORIGINS`
+/// konfiguriert), wird **jeder gesetzte** `Origin` als [`OriginOutcome::Forbidden`]
+/// klassifiziert. Das bricht die heutigen Alt-Clients **nicht** (sie senden
+/// keinen `Origin`), schliesst aber Browser-Cross-Origin-Zugriffe fail-closed aus,
+/// bis eine Allowlist bewusst gesetzt wird.
+pub fn classify_origin(header: Option<&str>, allowed: &[String]) -> OriginOutcome {
+    match header.map(str::trim) {
+        None | Some("") => OriginOutcome::Absent,
+        Some(origin) => {
+            if allowed.iter().any(|a| a.trim() == origin) {
+                OriginOutcome::Allowed
+            } else {
+                OriginOutcome::Forbidden
+            }
+        }
+    }
+}
+
+/// Liest die Origin-Allowlist aus der Umgebung (`MCP_ALLOWED_ORIGINS`,
+/// komma-separiert). Leere Einträge werden verworfen. Fehlt die Variable, ist
+/// die Allowlist leer → fail-safe (siehe [`classify_origin`]).
+pub fn allowed_origins_from_env() -> Vec<String> {
+    std::env::var("MCP_ALLOWED_ORIGINS")
+        .map(|raw| {
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,5 +313,50 @@ mod tests {
             classify_protocol_header(Some("garbage")),
             ProtocolHeaderOutcome::Unsupported
         );
+    }
+
+    // --- HTTP-Header `Origin` (DNS-Rebinding-Schutz, Spec `2025-11-25` #12) ---
+
+    #[test]
+    fn origin_absent_is_allowed_for_non_browser_clients() {
+        // Server-zu-Server-Clients (ansV, syllogismus-fedlex) senden keinen
+        // `Origin` → kein 403, der Normalfall bleibt unberührt.
+        assert_eq!(classify_origin(None, &[]), OriginOutcome::Absent);
+        assert_eq!(classify_origin(Some(""), &[]), OriginOutcome::Absent);
+        assert_eq!(classify_origin(Some("   "), &[]), OriginOutcome::Absent);
+    }
+
+    #[test]
+    fn origin_on_allowlist_is_allowed() {
+        let allow = vec!["https://app.mindful.bio".to_string()];
+        assert_eq!(
+            classify_origin(Some("https://app.mindful.bio"), &allow),
+            OriginOutcome::Allowed
+        );
+        // Umgebende Leerzeichen werden vor dem Vergleich getrimmt.
+        assert_eq!(
+            classify_origin(Some("  https://app.mindful.bio  "), &allow),
+            OriginOutcome::Allowed
+        );
+    }
+
+    #[test]
+    fn origin_not_on_allowlist_is_forbidden_403() {
+        let allow = vec!["https://app.mindful.bio".to_string()];
+        assert_eq!(
+            classify_origin(Some("https://evil.example"), &allow),
+            OriginOutcome::Forbidden
+        );
+    }
+
+    #[test]
+    fn origin_with_empty_allowlist_is_fail_closed() {
+        // Kein `MCP_ALLOWED_ORIGINS` gesetzt → jeder gesetzte Origin ist 403,
+        // aber header-lose Alt-Clients bleiben erlaubt.
+        assert_eq!(
+            classify_origin(Some("https://app.mindful.bio"), &[]),
+            OriginOutcome::Forbidden
+        );
+        assert_eq!(classify_origin(None, &[]), OriginOutcome::Absent);
     }
 }

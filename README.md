@@ -1,8 +1,11 @@
 # mcp-fedlex
 
 [![pipeline status](https://git.mindful-server.com/mindful-bio/mcp-fedlex/badges/main/pipeline.svg)](https://git.mindful-server.com/mindful-bio/mcp-fedlex/-/pipelines)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.1.0-green.svg)](./CHANGELOG.md)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
+
+[![Release](https://img.shields.io/badge/release-v0.2.0-green.svg)](./CHANGELOG.md)
+[![MCP](https://img.shields.io/badge/MCP-2025--11--25-blue.svg)](./docs/adr/ADR-008-mcp-protocol-version-upgrade.md)
+
 
 
 
@@ -122,13 +125,15 @@ Git-Tag gebunden) zusätzlich zu den rollenden Tags des internen Continuous-Depl
 
 | Tag | Zweck | Stabilität |
 |-----|-------|-----------|
-| `:v0.1.0` | zitierbares Release (an Git-Tag `v0.1.0`) | unveränderlich — **für Fremdnutzer empfohlen** |
+| `:v0.2.0` | zitierbares Release (an Git-Tag `v0.2.0`, MCP `2025-11-25`) | unveränderlich — **für Fremdnutzer empfohlen** |
+| `:v0.1.0` | älteres Release (an Git-Tag `v0.1.0`, MCP `2024-11-05`) | unveränderlich |
 | `:latest` | jeweils letzter `main`-Stand | rollend |
 | `:<short-sha>` | exakter Commit | unveränderlich, intern |
 
 ```bash
-docker pull registry.mindful-server.com/mindful-bio/mcp-fedlex:v0.1.0
+docker pull registry.mindful-server.com/mindful-bio/mcp-fedlex:v0.2.0
 ```
+
 
 Releases sind in [`CHANGELOG.md`](./CHANGELOG.md) dokumentiert; die gemeldete
 `serverInfo.version` (siehe `initialize`) entspricht dem SemVer aus `Cargo.toml`.
@@ -155,4 +160,5 @@ cargo test  --workspace -- --ignored      # Live-Konformanz gegen Fedlex (Netzwe
 
 ## Lizenz
 
-[MIT](./LICENSE) © mindful.bio
+[Apache-2.0](./LICENSE) © mindful.bio
+

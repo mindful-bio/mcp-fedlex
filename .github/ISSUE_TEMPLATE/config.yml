@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 Sicherheitslücke (vertraulich)"
+    url: https://github.com/mindful-bio/mcp-fedlex/security/advisories/new
+    about: "Sicherheitsrelevante Funde NICHT öffentlich melden — siehe SECURITY.md (security@mindful.bio)."
+  - name: "💬 Frage / Diskussion"
+    url: https://github.com/mindful-bio/mcp-fedlex/discussions
+    about: "Allgemeine Fragen zur Nutzung, Anbindung (MCP-Client) oder zum Deploy."

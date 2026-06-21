@@ -4,13 +4,25 @@ name: Live-Konformanz
 # Zweck ist Drift-Erkennung. Die Lexika (10/11_LEXICON) locken Befunde ein,
 # dieser Cron merkt, wenn der Bund Endpunkt, WAF-Heuristik oder Datenform
 # ändert. Schlägt ein Lauf fehl, ist zuerst der Bund verdächtig, nicht der Code.
+#
+# D-3 (45_GAP §G-5): Ein roter Lauf erzeugt jetzt ein **dedupliziertes GitHub-
+# Issue** (Label `live-conformance`), statt nur still im Actions-Tab rot zu
+# stehen. Existiert bereits ein offenes Issue, wird nur kommentiert — so entsteht
+# kein Issue-Spam bei mehrtägiger Bund-Störung. Ein grüner Folgelauf schliesst das
+# Issue automatisch wieder.
 
 on:
   schedule:
-    # Wöchentlich Montag 05:17 UTC. Bewusst krumme Minute, um nicht mit der
-    # Cron-Spitze zur vollen Stunde auf den Fedlex-Endpunkt zu treffen.
-    - cron: "17 5 * * 1"
+    # Zweimal pro Woche (Mo + Do), je 05:17 UTC. Bewusst krumme Minute, um nicht
+    # mit der Cron-Spitze zur vollen Stunde auf den Fedlex-Endpunkt zu treffen.
+    # Häufiger als wöchentlich (D-3), aber endpunkt-schonend.
+    - cron: "17 5 * * 1,4"
   workflow_dispatch:
+
+# Issue-Erstellung/-Kommentar/-Schliessung braucht Schreibrechte auf Issues.
+permissions:
+  contents: read
+  issues: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,3 +52,85 @@ jobs:
 
       - name: Bridge-Konformanz (3 Live-Tests)
         run: cargo test -p fedlex-bridge --test bridge_conformance -- --ignored --test-threads 2
+
+  # ---------------------------------------------------------------------------
+  # D-3: Alarm bei rotem Lauf. Läuft immer (auch nach grünem `conformance`), um
+  # ein evtl. offenes Issue nach Erholung wieder zu schliessen.
+  # ---------------------------------------------------------------------------
+  notify:
+    name: Drift-Alarm (Issue auf/zu)
+    needs: conformance
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Issue öffnen/kommentieren bzw. schliessen
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const failed = '${{ needs.conformance.result }}' !== 'success';
+            const label = 'live-conformance';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = 'Live-Konformanz: Drift gegen Fedlex erkannt';
+
+            // Offene Alarm-Issues dieses Workflows suchen (dedupliziert über Label).
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+              per_page: 20,
+            });
+
+            if (failed) {
+              const body = [
+                `Der Live-Konformanz-Lauf ist **fehlgeschlagen** (Drift gegen die echten Fedlex-Server).`,
+                ``,
+                `- Lauf: ${runUrl}`,
+                `- Ausgelöst durch: \`${context.eventName}\``,
+                `- Commit: \`${context.sha.substring(0, 8)}\``,
+                ``,
+                `**Triage-Reihenfolge** (siehe \`docs/45_GAP_ANALYSIS.md\` §G-5):`,
+                `1. Zuerst den Bund verdächtigen: Endpunkt-/WAF-/Datenform-Änderung?`,
+                `2. Fehlende Suite identifizieren (JOLux / AKN / Bridge) am roten Step.`,
+                `3. Erst danach den eigenen Code/das Lexikon (10/11_LEXICON) prüfen.`,
+              ].join('\n');
+
+              if (open.length === 0) {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title,
+                  body,
+                  labels: [label],
+                });
+                core.info('Neues Drift-Issue erstellt.');
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: open[0].number,
+                  body: `Weiterhin rot — erneuter Fehlschlag.\n\n- Lauf: ${runUrl}`,
+                });
+                core.info(`Bestehendes Drift-Issue #${open[0].number} kommentiert.`);
+              }
+            } else {
+              // Grüner Lauf: evtl. offene Drift-Issues wieder schliessen.
+              for (const issue of open) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `Live-Konformanz wieder **grün** — Drift behoben. Schliesse automatisch.\n\n- Lauf: ${runUrl}`,
+                });
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  state: 'closed',
+                });
+                core.info(`Drift-Issue #${issue.number} geschlossen.`);
+              }
+            }

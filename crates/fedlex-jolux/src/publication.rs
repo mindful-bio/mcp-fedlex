@@ -4,7 +4,7 @@
 //! **Die CC ist nicht rechtsverbindlich — die OC ist es** (J19.2). Genre und
 //! Autor liegen nur auf OC-Ebene (J8.3), die CA-Felder sind leer (J1.2).
 
-use crate::client::{val, SparqlClient, PREFIXES};
+use crate::client::{PREFIXES, SparqlClient, val};
 use crate::{eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};
@@ -98,10 +98,10 @@ pub async fn get_memorial(
     let m_uri = val(first, "m").unwrap_or_default().to_string();
     let mut acts: Vec<String> = Vec::new();
     for b in res.bindings() {
-        if let Some(act) = val(b, "act") {
-            if !acts.iter().any(|a| a == act) {
-                acts.push(act.to_string());
-            }
+        if let Some(act) = val(b, "act")
+            && !acts.iter().any(|a| a == act)
+        {
+            acts.push(act.to_string());
         }
     }
     Ok(MemorialInfo { uri: m_uri, acts })
@@ -181,12 +181,13 @@ mod tests {
             resp.data().genre.is_some(),
             "Genre liegt auf OC-Ebene (J8.3)"
         );
-        assert!(resp
-            .data()
-            .memorial
-            .as_deref()
-            .unwrap()
-            .contains("eli/collection/"));
+        assert!(
+            resp.data()
+                .memorial
+                .as_deref()
+                .unwrap()
+                .contains("eli/collection/")
+        );
 
         let q = client.last_query().unwrap();
         assert!(q.contains("jolux:basicAct"));

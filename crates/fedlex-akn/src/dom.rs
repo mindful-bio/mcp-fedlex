@@ -124,10 +124,10 @@ impl AknDocument {
         for child in n.children() {
             if child.is_element() {
                 content.push(Content::Element(self.copy_rox(child, Some(id))));
-            } else if let Some(text) = child.text() {
-                if !text.is_empty() {
-                    content.push(Content::Text(normalize_text(text)));
-                }
+            } else if let Some(text) = child.text()
+                && !text.is_empty()
+            {
+                content.push(Content::Text(normalize_text(text)));
             }
         }
         self.nodes[id].content = content;

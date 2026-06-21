@@ -47,7 +47,7 @@ pub use auth::{
 };
 pub use circuit_breaker::{BreakerConfig, BreakerError, BreakerState, CircuitBreaker};
 pub use discovery::register_discovery_tools;
-pub use health::{health_router, HealthState, ReadinessProbe};
+pub use health::{HealthState, ReadinessProbe, health_router};
 pub use lod_gateway::{
     ConnectorError, EliResolver, ExternalConnector, Origin, ResolveError, Resolved,
 };
@@ -55,8 +55,8 @@ pub use metadata::register_metadata_tools;
 
 pub use probes::{QuotaBackendProbe, SparqlProbe};
 pub use protocol::{
-    default_protocol_version, highest_supported, is_supported, negotiate, DEFAULT_PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    DEFAULT_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS, default_protocol_version,
+    highest_supported, is_supported, negotiate,
 };
 pub use quota::{Decision, QuotaBackend, QuotaError, QuotaPolicy, RateLimiter, RedisQuotaBackend};
 pub use registry::Registry;
@@ -65,9 +65,9 @@ pub use semantic_client::{
     BackendError, RawHit, ScoredHit, SearchOutcome, SemanticBackend, SemanticClient,
 };
 pub use temporal::{QueryStamp, TemporalResolver};
-pub use tool::{pools_for, role_allows, McpTool, ToolContext, ToolError, ToolPool};
+pub use tool::{McpTool, ToolContext, ToolError, ToolPool, pools_for, role_allows};
 pub use tools::register_navigation_tools;
 
-pub use transport::{router, JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpService};
+pub use transport::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpService, router};
 pub use warmup::{WarmupCache, WarmupReport};
-pub use xml_engine::{diff_to_markdown, paginate, Article, Document, L1Cache, Page};
+pub use xml_engine::{Article, Document, L1Cache, Page, diff_to_markdown, paginate};

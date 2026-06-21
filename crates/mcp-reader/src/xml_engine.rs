@@ -11,8 +11,8 @@
 //!    limitiert und tragen `{ has_more, next_page }`.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Ein Artikel-Knoten eines AKN/Jolux-Dokuments (vereinfachtes DOM).
 #[derive(Debug, Clone, PartialEq, Eq)]

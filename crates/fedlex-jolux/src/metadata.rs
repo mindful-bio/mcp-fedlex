@@ -1,6 +1,6 @@
 //! Primitive: Gesetzes-Metadaten (Rulebook J1/J3).
 
-use crate::client::{val, SparqlClient, PREFIXES};
+use crate::client::{PREFIXES, SparqlClient, val};
 use crate::{eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};
@@ -94,12 +94,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(resp.data().sr_number.as_deref(), Some("730.0"));
-        assert!(resp
-            .data()
-            .title
-            .as_deref()
-            .unwrap()
-            .contains("Energiegesetz"));
+        assert!(
+            resp.data()
+                .title
+                .as_deref()
+                .unwrap()
+                .contains("Energiegesetz")
+        );
         assert_eq!(
             resp.data().date_entry_in_force.as_deref(),
             Some("2018-01-01")

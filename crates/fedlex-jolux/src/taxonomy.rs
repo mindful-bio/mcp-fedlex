@@ -5,8 +5,8 @@
 //! semantic-fedlex (Embedding-basiert, probabilistisch). Deckt 85.4 % der
 //! CAs ab; der Rest ist nur über Vektor-Suche erreichbar.
 
-use crate::client::{val, Language, SparqlClient, PREFIXES};
-use crate::{eli_uri, error::JoluxError, FEDLEX_BASE};
+use crate::client::{Language, PREFIXES, SparqlClient, val};
+use crate::{FEDLEX_BASE, eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};
 

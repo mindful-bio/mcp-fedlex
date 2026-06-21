@@ -276,10 +276,10 @@ impl JwksAuthResolver {
     /// Algorithmus eines JWK. Erst `alg`-Feld, sonst Ableitung aus dem Key-Typ.
     fn algorithm_of(jwk: &jsonwebtoken::jwk::Jwk) -> Option<jsonwebtoken::Algorithm> {
         use jsonwebtoken::jwk::AlgorithmParameters;
-        if let Some(ka) = jwk.common.key_algorithm {
-            if let Ok(alg) = ka.to_string().parse() {
-                return Some(alg);
-            }
+        if let Some(ka) = jwk.common.key_algorithm
+            && let Ok(alg) = ka.to_string().parse()
+        {
+            return Some(alg);
         }
         match &jwk.algorithm {
             AlgorithmParameters::RSA(_) => Some(jsonwebtoken::Algorithm::RS256),

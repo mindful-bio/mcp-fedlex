@@ -1,8 +1,8 @@
 //! Primitive: Identitäts-Auflösung — SR-Nummer, Sprachen, Manifestationen
 //! (Lexikon JLX-RES-01/04/05, Rulebook J2/J13).
 
-use crate::client::{val, Language, SparqlClient, PREFIXES};
-use crate::{eli_uri, error::JoluxError, FEDLEX_BASE};
+use crate::client::{Language, PREFIXES, SparqlClient, val};
+use crate::{FEDLEX_BASE, eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};
 

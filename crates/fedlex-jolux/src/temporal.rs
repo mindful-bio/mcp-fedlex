@@ -4,7 +4,7 @@
 //! (Versions-Fassung) finden und ihre XML-Manifestation liefern. Vermeidet den
 //! Fehler „immer die neueste Fassung" (J3.1/J20.2).
 
-use crate::client::{val, Language, SparqlClient, PREFIXES};
+use crate::client::{Language, PREFIXES, SparqlClient, val};
 use crate::{eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};

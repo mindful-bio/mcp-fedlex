@@ -17,9 +17,9 @@ use axum::Router;
 use tokio::net::TcpListener;
 
 use crate::auth::AuthResolver;
-use crate::health::{health_router, HealthState};
+use crate::health::{HealthState, health_router};
 use crate::quota::QuotaBackend;
-use crate::transport::{router, McpService};
+use crate::transport::{McpService, router};
 
 /// Baut die vollständige HTTP-App.
 ///

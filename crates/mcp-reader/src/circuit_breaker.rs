@@ -90,12 +90,11 @@ impl CircuitBreaker {
 
     /// Übergang Open -> HalfOpen, sobald der Cooldown abgelaufen ist.
     fn refresh(&self, inner: &mut Inner, now: OffsetDateTime) {
-        if inner.state == BreakerState::Open {
-            if let Some(opened) = inner.opened_at {
-                if now - opened >= self.config.open_cooldown {
-                    inner.state = BreakerState::HalfOpen;
-                }
-            }
+        if inner.state == BreakerState::Open
+            && let Some(opened) = inner.opened_at
+            && now - opened >= self.config.open_cooldown
+        {
+            inner.state = BreakerState::HalfOpen;
         }
     }
 
@@ -157,8 +156,8 @@ impl CircuitBreaker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[derive(Debug, PartialEq, Eq)]
     struct Boom;

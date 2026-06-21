@@ -33,34 +33,34 @@ pub mod temporal;
 pub mod treaties;
 pub mod vocabulary;
 
-pub use citations::{get_citations, Citation, CitationDirection};
-pub use client::{val, Language, MockSparqlClient, SparqlClient, SparqlResults, PREFIXES};
+pub use citations::{Citation, CitationDirection, get_citations};
+pub use client::{Language, MockSparqlClient, PREFIXES, SparqlClient, SparqlResults, val};
 pub use error::JoluxError;
 pub use genesis::{
-    get_consultation_documents, get_consultations, get_drafts, Consultation, ConsultationDocument,
-    Draft,
+    Consultation, ConsultationDocument, Draft, get_consultation_documents, get_consultations,
+    get_drafts,
 };
 pub use impacts::{
-    get_article_history, get_impacts, get_outgoing_impacts, normalize_eid, Impact, OutgoingImpact,
+    Impact, OutgoingImpact, get_article_history, get_impacts, get_outgoing_impacts, normalize_eid,
 };
-pub use metadata::{get_law_metadata, LawMetadata};
+pub use metadata::{LawMetadata, get_law_metadata};
 pub use publication::{
-    get_fga_documents, get_memorial, get_oc_act, FgaDocument, MemorialInfo, OcAct,
+    FgaDocument, MemorialInfo, OcAct, get_fga_documents, get_memorial, get_oc_act,
 };
 pub use resolve::{
-    list_expressions, resolve_manifestation, resolve_sr_number, Manifestation, ManifestationFormat,
-    SrHit,
+    Manifestation, ManifestationFormat, SrHit, list_expressions, resolve_manifestation,
+    resolve_sr_number,
 };
-pub use search::{search_law, LawHit};
-pub use subdivisions::{get_subdivisions, list_annexes, Subdivision, ANNEX_TYPE_URI};
-pub use taxonomy::{find_related_by_topic, get_taxonomy, RelatedLaw, TaxonomyEntry};
+pub use search::{LawHit, search_law};
+pub use subdivisions::{ANNEX_TYPE_URI, Subdivision, get_subdivisions, list_annexes};
+pub use taxonomy::{RelatedLaw, TaxonomyEntry, find_related_by_topic, get_taxonomy};
 pub use temporal::{
-    check_in_force, list_versions, resolve_consolidation_at, Consolidation, InForce, Version,
+    Consolidation, InForce, Version, check_in_force, list_versions, resolve_consolidation_at,
 };
-pub use treaties::{find_treaties, get_treaty_info, TreatyHit, TreatyInfo};
+pub use treaties::{TreatyHit, TreatyInfo, find_treaties, get_treaty_info};
 pub use vocabulary::{
-    explore_node, list_vocabulary, resolve_vocabulary_label, NodeEdge, NodeNeighborhood,
-    VocabularyConcept, VOCABULARY_BASE,
+    NodeEdge, NodeNeighborhood, VOCABULARY_BASE, VocabularyConcept, explore_node, list_vocabulary,
+    resolve_vocabulary_label,
 };
 
 /// Basis-URI von Fedlex. ELI-Werte werden relativ dazu gespeichert (`eli/cc/...`).

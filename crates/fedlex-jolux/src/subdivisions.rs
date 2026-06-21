@@ -5,7 +5,7 @@
 //! XML-eIds — nur Elemente mit mindestens einem Impact existieren als
 //! Subdivision (J4.1). Vollstruktur liefert ausschliesslich der AKN-Layer.
 
-use crate::client::{val, SparqlClient, PREFIXES};
+use crate::client::{PREFIXES, SparqlClient, val};
 use crate::{eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};
@@ -103,11 +103,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.data().len(), 2);
-        assert!(resp.data()[0]
-            .subdivision_type
-            .as_deref()
-            .unwrap()
-            .ends_with("/article"));
+        assert!(
+            resp.data()[0]
+                .subdivision_type
+                .as_deref()
+                .unwrap()
+                .ends_with("/article")
+        );
         assert!(resp.data()[1].subdivision_type.is_none());
 
         let q = client.last_query().unwrap();

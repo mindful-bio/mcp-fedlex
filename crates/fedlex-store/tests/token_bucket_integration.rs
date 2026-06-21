@@ -7,8 +7,8 @@
 #![cfg(feature = "redis-store")]
 
 use fedlex_store::token_bucket::{BucketParams, RedisTokenBucket};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use testcontainers_modules::redis::Redis;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 

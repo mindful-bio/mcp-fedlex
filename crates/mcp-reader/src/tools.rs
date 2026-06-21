@@ -14,14 +14,15 @@
 use crate::tool::{McpTool, ToolContext, ToolError, ToolPool};
 use async_trait::async_trait;
 use fedlex_akn::{
-    classify_pattern, get_all_references, get_article_text, get_document_structure,
-    get_element_text, get_frbr_metadata, get_modifications, get_readable_document, search_text,
-    AknDocument,
+    AknDocument, classify_pattern, detect_foreign_content, extract_tables, get_all_references,
+    get_article_text, get_document_structure, get_element_text, get_frbr_metadata,
+    get_modifications, get_readable_document, list_components, search_text,
 };
+
 use fedlex_bridge::{AknFetcher, BridgeError, XmlSource};
 use fedlex_core::{Eli, Response, ValidAsOf};
 use fedlex_jolux::{JoluxError, Language, SparqlClient};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -59,6 +60,15 @@ where
         fetcher: Arc::clone(&fetcher),
     }));
     registry.register(Arc::new(CompareVersions {
+        fetcher: Arc::clone(&fetcher),
+    }));
+    registry.register(Arc::new(ExtractTables {
+        fetcher: Arc::clone(&fetcher),
+    }));
+    registry.register(Arc::new(ListComponents {
+        fetcher: Arc::clone(&fetcher),
+    }));
+    registry.register(Arc::new(DetectForeignContent {
         fetcher: Arc::clone(&fetcher),
     }));
     registry.register(Arc::new(ReadDocument { fetcher }));
@@ -458,6 +468,116 @@ where
     }
 }
 
+/// AKN-SPC-01. Tabellen eines Erlasses als strukturierte Einheiten.
+struct ExtractTables<C, S> {
+    fetcher: Arc<AknFetcher<C, S>>,
+}
+
+#[async_trait]
+impl<C, S> McpTool for ExtractTables<C, S>
+where
+    C: SparqlClient + Send + Sync,
+    S: XmlSource + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "extract_tables"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::LocalNavigation
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Tabellen eines Erlasses als strukturierte Einheiten (AKN-SPC-01). Tarife, Grenzwerte, Zuständigkeits-Matrizen. `within` schränkt auf einen Teilbaum ein; `oversized=true` markiert >100-Zeilen-Tabellen, die nicht als Einheit chunkbar sind.",
+            "properties": {
+                "eli": { "type": "string" },
+                "within": { "type": "string", "description": "Optionale eId, auf deren Teilbaum eingeschränkt wird, z.B. art_5" },
+                "lang": { "type": "string", "enum": ["de", "fr", "it", "en", "rm"], "default": "de" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let resp = fetch(&self.fetcher, ctx, &args).await?;
+        let within = args.get("within").and_then(Value::as_str);
+        let tables = extract_tables(resp.data(), within).map_err(map_akn)?;
+        let prov = resp.provenance().clone();
+        Ok(Response::new(to_value(tables)?, prov))
+    }
+}
+
+/// AKN-CMP-01. Anhänge/Beilagen eines Erlasses (eigenständige FRBR-Werke).
+struct ListComponents<C, S> {
+    fetcher: Arc<AknFetcher<C, S>>,
+}
+
+#[async_trait]
+impl<C, S> McpTool for ListComponents<C, S>
+where
+    C: SparqlClient + Send + Sync,
+    S: XmlSource + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "list_components"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::LocalNavigation
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Anhänge/Beilagen eines Erlasses (AKN-CMP-01). Jeder Anhang ist ein eigenständiges FRBR-Werk mit eigener Identität; `is_empty_stub` markiert überspringbare Leer-Anhänge. Komplementär zu list_annexes (JOLux-Sicht, nur Anhänge mit Impacts).",
+            "properties": {
+                "eli": { "type": "string" },
+                "lang": { "type": "string", "enum": ["de", "fr", "it", "en", "rm"], "default": "de" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let resp = fetch(&self.fetcher, ctx, &args).await?;
+        let components = list_components(resp.data());
+        let prov = resp.provenance().clone();
+        Ok(Response::new(to_value(components)?, prov))
+    }
+}
+
+/// AKN-SPC-02. Eingebettete Fremdinhalte (Formeln, Grafiken, OOXML).
+struct DetectForeignContent<C, S> {
+    fetcher: Arc<AknFetcher<C, S>>,
+}
+
+#[async_trait]
+impl<C, S> McpTool for DetectForeignContent<C, S>
+where
+    C: SparqlClient + Send + Sync,
+    S: XmlSource + Send + Sync,
+{
+    fn name(&self) -> &str {
+        "detect_foreign_content"
+    }
+    fn pool(&self) -> ToolPool {
+        ToolPool::LocalNavigation
+    }
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "description": "Eingebettete Fremdinhalte eines Erlasses (AKN-SPC-02): SVG-Grafiken, MathML-Formeln, SKOS, OOXML. Selten, aber juristisch relevant (Berechnungsformeln in Verordnungen). Als Einheit behandeln, nie elementweise zerlegen.",
+            "properties": {
+                "eli": { "type": "string" },
+                "lang": { "type": "string", "enum": ["de", "fr", "it", "en", "rm"], "default": "de" }
+            },
+            "required": ["eli"]
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: Value) -> Result<Response<Value>, ToolError> {
+        let resp = fetch(&self.fetcher, ctx, &args).await?;
+        let foreign = detect_foreign_content(resp.data());
+        let prov = resp.provenance().clone();
+        Ok(Response::new(to_value(foreign)?, prov))
+    }
+}
+
 /// Versionsvergleich. Zwei Stichtagsfassungen desselben Erlasses, destilliert
 /// zu hinzugefügten, entfernten und geänderten Artikeln (Pool Validation).
 struct CompareVersions<C, S> {
@@ -674,11 +794,53 @@ mod tests {
             "read_document",
             "read_element",
             "search_text",
+            "extract_tables",
+            "list_components",
+            "detect_foreign_content",
         ] {
             assert!(names.contains(&expected.to_string()), "fehlt: {expected}");
         }
         // Validation-Pool bleibt dem Reader verborgen.
         assert!(!names.contains(&"compare_versions".to_string()));
+    }
+
+    #[tokio::test]
+    async fn extract_tables_returns_empty_list_for_tableless_act() {
+        let out = registry()
+            .dispatch(
+                &ctx(),
+                "extract_tables",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out["data"].as_array().unwrap().is_empty(), "war: {out}");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+    }
+
+    #[tokio::test]
+    async fn list_components_returns_empty_list_for_componentless_act() {
+        let out = registry()
+            .dispatch(
+                &ctx(),
+                "list_components",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out["data"].as_array().unwrap().is_empty(), "war: {out}");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
+    }
+
+    #[tokio::test]
+    async fn detect_foreign_content_returns_empty_list_for_plain_act() {
+        let out = registry()
+            .dispatch(
+                &ctx(),
+                "detect_foreign_content",
+                json!({ "eli": "eli/cc/2017/762" }),
+            )
+            .await;
+        assert!(out["data"].as_array().unwrap().is_empty(), "war: {out}");
+        assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
     }
 
     #[tokio::test]
@@ -813,10 +975,12 @@ mod tests {
         assert!(out["data"]["added"].as_array().unwrap().is_empty());
         assert!(out["data"]["changed"].as_array().unwrap().is_empty());
         assert!(out["data"]["removed"].as_array().unwrap().is_empty());
-        assert!(out["data"]["markdown"]
-            .as_str()
-            .unwrap()
-            .contains("Versionsvergleich"));
+        assert!(
+            out["data"]["markdown"]
+                .as_str()
+                .unwrap()
+                .contains("Versionsvergleich")
+        );
         assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
     }
 
@@ -850,10 +1014,12 @@ mod tests {
                 json!({ "eli": "eli/cc/2017/762", "eid": "art_1/para_1" }),
             )
             .await;
-        assert!(out["error"]
-            .as_str()
-            .unwrap()
-            .contains("erwartet <article>"));
+        assert!(
+            out["error"]
+                .as_str()
+                .unwrap()
+                .contains("erwartet <article>")
+        );
     }
 
     #[tokio::test]

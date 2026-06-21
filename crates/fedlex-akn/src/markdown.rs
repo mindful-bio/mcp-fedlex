@@ -4,7 +4,7 @@
 //! Für Anzeige und LLM-Kontext, nicht für Zitate (dafür TXT-01/02).
 
 use crate::doc::{get_frbr_metadata, provenance};
-use crate::dom::{is_hierarchy_tag, AknDocument, NodeId};
+use crate::dom::{AknDocument, NodeId, is_hierarchy_tag};
 use crate::error::AknError;
 use fedlex_core::{Response, ValidAsOf};
 

@@ -43,9 +43,7 @@ impl ResolveError {
     /// Lenkender Hinweis fürs LLM.
     pub fn hint(&self) -> &'static str {
         match self {
-            ResolveError::NotFound(_) => {
-                "Referenz unbekannt, bitte ELI/ECLI pruefen."
-            }
+            ResolveError::NotFound(_) => "Referenz unbekannt, bitte ELI/ECLI pruefen.",
             ResolveError::Unavailable => {
                 "Externe Quelle voruebergehend nicht erreichbar, lokale Navigation weiterhin moeglich."
             }
@@ -124,8 +122,8 @@ impl<C: ExternalConnector> EliResolver<C> {
 mod tests {
     use super::*;
     use crate::circuit_breaker::{BreakerConfig, BreakerState};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     /// Konnektor, der Aufrufe zählt und stets scheitert (defekter Endpunkt).

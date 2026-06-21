@@ -87,16 +87,21 @@ projiziert. Das ist für ein juristisches Gutachten-System gravierend: „in Kra
 „welche Norm ändert diese?" sind Kernfragen, die der Server beantworten *kann*, aber nicht
 *anbietet*.
 
-### G-2 — AKN: fünf Aufbereitungs-Primitive nicht projiziert
+### G-2 — AKN: Aufbereitungs-Primitive  · *nutzwertige Lücken geschlossen (2026-06-21)*
 
-Verifiziert (0 Reader-Vorkommen): `list_components` / `get_component_document`, `extract_tables`,
-`detect_foreign_content`, `hollow_document`, `chunk_document`. Bewertung gemischt:
+Ausgangslage waren fünf nicht projizierte Primitive: `list_components` / `get_component_document`,
+`extract_tables`, `detect_foreign_content`, `hollow_document`, `chunk_document`. Bewertung und
+heutiger Stand:
 
-- `extract_tables`, `list_components`, `detect_foreign_content` sind **nutzwertige Lücken**
-  (Tabellen/Anhänge/fremdsprachige Blöcke kommen in echten Erlassen vor).
+- `extract_tables`, `list_components`, `detect_foreign_content` waren **nutzwertige Lücken**
+  (Tabellen/Anhänge/fremdsprachige Blöcke kommen in echten Erlassen vor). **Geschlossen:** Die
+  drei sind nun als gleichnamige MCP-Tools im Pool `LocalNavigation` projiziert
+  (`mcp-reader/src/tools.rs`), in der Matrix als `Projected` verbucht (AKN-CMP-01, AKN-SPC-01,
+  AKN-SPC-02) und durch Offline-Tests abgedeckt. `get_component_document` (AKN-CMP-02) bleibt
+  bewusst `Excluded` — interner Helper, von `list_components` abgedeckt.
 - `hollow_document`/`chunk_document` sind eher **RAG-Bausteine** für `semantic-fedlex` als
-  direkte Agenten-Tools — vermutlich **bewusster Ausschluss**, sollte aber explizit so
-  festgehalten werden.
+  direkte Agenten-Tools — **bewusster Ausschluss** (`CHK-*` als `Excluded` in der Matrix).
+
 
 ### G-3 — ansV-Blockade (unverändert gültig, jetzt breiter)
 
@@ -117,10 +122,19 @@ Tool dazukommt — Lücken wie G-1/G-2 können so nicht mehr unbemerkt entstehen
 G-2-Primitive nun **explizit** als `Excluded` verbucht (Nutzwert-Lücke, bewusst zurückgestellt;
 `CHK-*` als dauerhafter RAG-Ausschluss).
 
-### G-5 — Live-Konformanz: wöchentlich, ohne Alarm (kleine Härtung)
+### G-5 — Live-Konformanz: Frequenz & Alarm  · *geschlossen (2026-06-21)*
 
-Siehe §0. Wöchentlich ist für Drift-Erkennung grob; ein roter Lauf erzeugt heute kein
-Issue/keine Benachrichtigung. Geringe Priorität.
+~~Siehe §0. Wöchentlich ist für Drift-Erkennung grob; ein roter Lauf erzeugt heute kein
+Issue/keine Benachrichtigung.~~ **Geschlossen** in `live-conformance.yml`:
+
+- **Frequenz** von wöchentlich auf **zweimal/Woche** (Mo + Do, `cron: "17 5 * * 1,4"`) erhöht —
+  endpunkt-schonend, aber engmaschigere Drift-Erkennung.
+- **Alarm**: ein neuer `notify`-Job (`if: always()`, `actions/github-script`) öffnet bei rotem
+  Lauf ein **dedupliziertes** GitHub-Issue (Label `live-conformance`) mit Triage-Reihenfolge
+  („zuerst den Bund verdächtigen"); existiert bereits ein offenes Issue, wird nur kommentiert
+  (kein Spam bei mehrtägiger Bund-Störung). Ein **grüner Folgelauf schliesst das Issue
+  automatisch** wieder.
+
 
 ---
 

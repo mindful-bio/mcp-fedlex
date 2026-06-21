@@ -11,6 +11,20 @@
 //! Wissensstand rekonstruierbar, und stiller Drift ist ausgeschlossen.
 //!
 //! Oxigraph läuft eingebettet (in-process), die Tests brauchen kein Docker.
+//!
+//! **Schema-Versionierung (B-2/D-2).** Der Korpus trägt eine [`SCHEMA_VERSION`].
+//! Sie wandert in jeden Backup-Kopf. Beim Restore wird sie geprüft: eine fremde
+//! Version bricht hart mit [`GraphError::SchemaMismatch`] ab, statt still
+//! inkompatible Daten zu laden. Wird das RDF-Schema (Prädikate/Form) je
+//! verändert, ist die Konstante zu erhöhen und eine Migrationsnotiz an
+//! [`restore_from_str`](OxigraphCorpus::restore_from_str) zu ergänzen.
+//!
+//! **Backup/Restore (B-1/D-1).** [`dump_to_string`](OxigraphCorpus::dump_to_string)
+//! schreibt einen vollständigen, menschenlesbaren Schnappschuss (Kopf + eine
+//! Zeile je Fassung). [`restore_from_str`](OxigraphCorpus::restore_from_str) baut
+//! daraus deterministisch einen frischen Korpus. Der Roundtrip ist append-only-
+//! treu: Gültigkeits- und Transaktionszeit jeder Fassung bleiben erhalten, die
+//! Historie (mehrere Fassungen pro ELI) geht nicht verloren.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -20,6 +34,16 @@ use oxigraph::store::Store;
 use time::format_description::well_known::Rfc3339;
 use time::macros::format_description;
 use time::{Date, OffsetDateTime};
+
+/// Schema-Version des bi-temporalen Korpus-RDF (Prädikate + Fassungs-Form).
+///
+/// Wird in jeden Backup-Kopf geschrieben und beim Restore geprüft. **Erhöhen,
+/// sobald sich Prädikat-Namen, Datentypen oder die Fassungs-Struktur ändern**,
+/// und dann die Migrationsnotiz in [`OxigraphCorpus::restore_from_str`] ergänzen.
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// Kopfzeilen-Präfix eines Korpus-Backups. Trägt die Schema-Version.
+const BACKUP_HEADER_PREFIX: &str = "#fedlex-corpus-backup v";
 
 /// Namespace der Korpus-Prädikate.
 const NS: &str = "https://fedlex.local/ns#";
@@ -42,6 +66,17 @@ pub enum GraphError {
     /// Ein Datum/Zeitstempel liess sich nicht formatieren.
     #[error("temporal formatting error: {0}")]
     Format(String),
+    /// Ein Backup hatte ein nicht lesbares oder beschädigtes Format.
+    #[error("corrupt backup: {0}")]
+    CorruptBackup(String),
+    /// Ein Restore wurde mit einer fremden Schema-Version versucht (D-2-Guard).
+    #[error("schema version mismatch: backup is v{found}, this build expects v{expected}")]
+    SchemaMismatch {
+        /// Die im Backup-Kopf gefundene Version.
+        found: u32,
+        /// Die von diesem Build erwartete [`SCHEMA_VERSION`].
+        expected: u32,
+    },
 }
 
 /// Append-only, bi-temporaler Korpus über einem eingebetteten Oxigraph.
@@ -208,6 +243,105 @@ impl OxigraphCorpus {
         }
     }
 
+    /// Serialisiert den gesamten Korpus in einen versionierten Schnappschuss
+    /// (Backup, D-1). Format: eine Kopfzeile `#fedlex-corpus-backup v<N>`,
+    /// danach je Fassung eine tab-separierte Zeile
+    /// `eli \t versionId \t validFrom \t transactionTime \t text`. Felder werden
+    /// escaped, damit Tabs/Zeilenumbrüche im Text die Zeilenstruktur nicht
+    /// sprengen. Die Reihenfolge ist deterministisch (nach ELI, dann Zeiten),
+    /// damit zwei Dumps desselben Standes byte-gleich sind.
+    pub fn dump_to_string(&self) -> Result<String, GraphError> {
+        let query = format!(
+            "PREFIX fx: <{NS}>
+             SELECT ?eli ?ver ?vf ?tt ?text WHERE {{
+                 ?v fx:eli ?eli ;
+                    fx:versionId ?ver ;
+                    fx:validFrom ?vf ;
+                    fx:transactionTime ?tt ;
+                    fx:text ?text .
+             }}
+             ORDER BY ?eli ?vf ?tt ?ver"
+        );
+
+        let mut out = format!("{BACKUP_HEADER_PREFIX}{SCHEMA_VERSION}\n");
+        if let QueryResults::Solutions(solutions) = self.query(&query)? {
+            for row in solutions {
+                let row = row.map_err(|e| GraphError::Query(e.to_string()))?;
+                let field = |name: &str| -> Result<String, GraphError> {
+                    row.get(name)
+                        .and_then(literal_value)
+                        .ok_or_else(|| GraphError::CorruptBackup(format!("missing field {name}")))
+                };
+                let line = [
+                    field("eli")?,
+                    field("ver")?,
+                    field("vf")?,
+                    field("tt")?,
+                    field("text")?,
+                ]
+                .iter()
+                .map(|f| backup_escape(f))
+                .collect::<Vec<_>>()
+                .join("\t");
+                out.push_str(&line);
+                out.push('\n');
+            }
+        }
+        Ok(out)
+    }
+
+    /// Baut aus einem Schnappschuss von [`dump_to_string`] einen frischen Korpus
+    /// (Restore, D-1). Die Schema-Version im Kopf wird gegen [`SCHEMA_VERSION`]
+    /// geprüft; eine Abweichung bricht hart mit [`GraphError::SchemaMismatch`]
+    /// ab, statt inkompatible Daten still zu laden (D-2-Guard).
+    ///
+    /// **Migrationsnotiz.** Solange [`SCHEMA_VERSION`] `1` ist, gibt es nur ein
+    /// Format und keine Migration. Wird die Version je erhöht, ist hier ein
+    /// Upgrade-Pfad `v(N-1) -> vN` einzuziehen (Felder ergänzen/umbenennen),
+    /// bevor der harte Abbruch greift — Altbackups bleiben so lesbar.
+    pub fn restore_from_str(snapshot: &str) -> Result<Self, GraphError> {
+        let mut lines = snapshot.lines();
+        let header = lines
+            .next()
+            .ok_or_else(|| GraphError::CorruptBackup("empty snapshot".into()))?;
+        let version = parse_backup_version(header)?;
+        if version != SCHEMA_VERSION {
+            return Err(GraphError::SchemaMismatch {
+                found: version,
+                expected: SCHEMA_VERSION,
+            });
+        }
+
+        let corpus = Self::new()?;
+        for (idx, raw) in lines.enumerate() {
+            if raw.is_empty() {
+                continue;
+            }
+            let cols: Vec<&str> = raw.split('\t').collect();
+            if cols.len() != 5 {
+                return Err(GraphError::CorruptBackup(format!(
+                    "line {} has {} fields, expected 5",
+                    idx + 2,
+                    cols.len()
+                )));
+            }
+            let eli = backup_unescape(cols[0]);
+            let version_id = backup_unescape(cols[1]);
+            let vf = backup_unescape(cols[2]);
+            let tt = backup_unescape(cols[3]);
+            let text = backup_unescape(cols[4]);
+
+            let valid_from = Date::parse(&vf, format_description!("[year]-[month]-[day]"))
+                .map_err(|e| GraphError::CorruptBackup(format!("bad validFrom '{vf}': {e}")))?;
+            let transaction_time = OffsetDateTime::parse(&tt, &Rfc3339).map_err(|e| {
+                GraphError::CorruptBackup(format!("bad transactionTime '{tt}': {e}"))
+            })?;
+
+            corpus.append_version(&eli, &version_id, valid_from, transaction_time, &text)?;
+        }
+        Ok(corpus)
+    }
+
     fn version_node(&self, id: u64) -> Result<NamedNode, GraphError> {
         self.named(&format!("{VERSION_NS}{id}"))
     }
@@ -240,6 +374,50 @@ fn sparql_string(raw: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r");
     format!("\"{escaped}\"")
+}
+
+/// Escaped ein Backup-Feld, damit Backslash, Tab und Zeilenumbruch die
+/// tab-separierte Zeilenstruktur des Dumps nicht zerbrechen. Umkehrung:
+/// [`backup_unescape`].
+fn backup_escape(raw: &str) -> String {
+    raw.replace('\\', "\\\\")
+        .replace('\t', "\\t")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// Macht [`backup_escape`] rückgängig. Unbekannte Escapes bleiben unverändert.
+fn backup_unescape(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('\\') => out.push('\\'),
+                Some('t') => out.push('\t'),
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Liest die Schema-Version aus der Backup-Kopfzeile `#fedlex-corpus-backup v<N>`.
+fn parse_backup_version(header: &str) -> Result<u32, GraphError> {
+    let rest = header.strip_prefix(BACKUP_HEADER_PREFIX).ok_or_else(|| {
+        GraphError::CorruptBackup(format!("missing backup header, got: {header:?}"))
+    })?;
+    rest.trim()
+        .parse::<u32>()
+        .map_err(|e| GraphError::CorruptBackup(format!("bad version in header '{header}': {e}")))
 }
 
 #[cfg(test)]
@@ -372,5 +550,143 @@ mod tests {
         let hit = corpus.resolve_as_of(nasty, date!(2020 - 01 - 01)).unwrap();
         assert_eq!(hit, None);
         assert_eq!(corpus.version_count(nasty).unwrap(), 0);
+    }
+
+    /// Befüllt einen Korpus mit zwei ELIs, davon einer mit Korrektur-Historie.
+    fn seeded_corpus() -> OxigraphCorpus {
+        let corpus = OxigraphCorpus::new().unwrap();
+        corpus
+            .append_version(
+                "eli/cc/1999/404",
+                "2000",
+                date!(2000 - 01 - 01),
+                datetime!(2001-03-01 09:00 UTC),
+                "Erstfassung mit Tippfehler",
+            )
+            .unwrap();
+        corpus
+            .append_version(
+                "eli/cc/1999/404",
+                "2000",
+                date!(2000 - 01 - 01),
+                datetime!(2002-06-01 09:00 UTC),
+                "Korrigierte Fassung",
+            )
+            .unwrap();
+        corpus
+            .append_version(
+                "eli/cc/2010/77",
+                "2010",
+                date!(2010 - 01 - 01),
+                datetime!(2010-01-01 00:00 UTC),
+                "Andere Norm",
+            )
+            .unwrap();
+        corpus
+    }
+
+    #[test]
+    fn backup_header_carries_schema_version() {
+        let dump = OxigraphCorpus::new().unwrap().dump_to_string().unwrap();
+        assert!(dump.starts_with(&format!("{BACKUP_HEADER_PREFIX}{SCHEMA_VERSION}\n")));
+    }
+
+    #[test]
+    fn dump_is_deterministic() {
+        let a = seeded_corpus().dump_to_string().unwrap();
+        let b = seeded_corpus().dump_to_string().unwrap();
+        assert_eq!(a, b, "zwei Dumps desselben Standes müssen byte-gleich sein");
+    }
+
+    #[test]
+    fn restore_roundtrip_preserves_resolution_and_history() {
+        let original = seeded_corpus();
+        let dump = original.dump_to_string().unwrap();
+
+        let restored = OxigraphCorpus::restore_from_str(&dump).unwrap();
+
+        // Bi-temporale Auflösung überlebt den Roundtrip (Korrektur gewinnt).
+        assert_eq!(
+            restored
+                .resolve_as_of("eli/cc/1999/404", date!(2005 - 01 - 01))
+                .unwrap()
+                .as_deref(),
+            Some("Korrigierte Fassung"),
+        );
+        // Append-only-Historie bleibt vollständig (kein Verlust der Erstfassung).
+        assert_eq!(restored.version_count("eli/cc/1999/404").unwrap(), 2);
+        assert_eq!(restored.version_count("eli/cc/2010/77").unwrap(), 1);
+
+        // Ein erneuter Dump des Restores ist byte-gleich zum Original.
+        assert_eq!(restored.dump_to_string().unwrap(), dump);
+    }
+
+    #[test]
+    fn restore_roundtrip_survives_tabs_and_newlines_in_text() {
+        let corpus = OxigraphCorpus::new().unwrap();
+        let tricky = "Art. 1\tAbs. 2\nmit Zeilenumbruch und \\ Backslash";
+        corpus
+            .append_version(
+                "eli/cc/2020/1",
+                "2020",
+                date!(2020 - 01 - 01),
+                datetime!(2020-01-01 00:00 UTC),
+                tricky,
+            )
+            .unwrap();
+
+        let dump = corpus.dump_to_string().unwrap();
+        // Genau eine Datenzeile trotz eingebettetem Zeilenumbruch.
+        assert_eq!(dump.lines().count(), 2);
+
+        let restored = OxigraphCorpus::restore_from_str(&dump).unwrap();
+        assert_eq!(
+            restored
+                .resolve_as_of("eli/cc/2020/1", date!(2020 - 06 - 01))
+                .unwrap()
+                .as_deref(),
+            Some(tricky),
+        );
+    }
+
+    #[test]
+    fn restore_rejects_foreign_schema_version() {
+        // Ein Backup-Kopf einer fremden (zukünftigen) Schema-Version.
+        let future = SCHEMA_VERSION + 1;
+        let snapshot = format!("{BACKUP_HEADER_PREFIX}{future}\n");
+        // `OxigraphCorpus` ist nicht `Debug`, daher kein `unwrap_err()`: direkt matchen.
+        match OxigraphCorpus::restore_from_str(&snapshot) {
+            Err(GraphError::SchemaMismatch { found, expected }) => {
+                assert_eq!(found, future);
+                assert_eq!(expected, SCHEMA_VERSION);
+            }
+            Err(other) => panic!("expected SchemaMismatch, got {other:?}"),
+            Ok(_) => panic!("expected SchemaMismatch, got Ok"),
+        }
+    }
+
+    #[test]
+    fn restore_rejects_missing_header() {
+        assert!(matches!(
+            OxigraphCorpus::restore_from_str("eli\tver\t2000-01-01\tx\ttext\n"),
+            Err(GraphError::CorruptBackup(_))
+        ));
+    }
+
+    #[test]
+    fn restore_rejects_truncated_line() {
+        let snapshot =
+            format!("{BACKUP_HEADER_PREFIX}{SCHEMA_VERSION}\neli\tver\tnur-drei-felder\n");
+        assert!(matches!(
+            OxigraphCorpus::restore_from_str(&snapshot),
+            Err(GraphError::CorruptBackup(_))
+        ));
+    }
+
+    #[test]
+    fn empty_corpus_restore_roundtrips() {
+        let dump = OxigraphCorpus::new().unwrap().dump_to_string().unwrap();
+        let restored = OxigraphCorpus::restore_from_str(&dump).unwrap();
+        assert_eq!(restored.version_count("egal").unwrap(), 0);
     }
 }

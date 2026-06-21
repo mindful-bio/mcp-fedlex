@@ -11,7 +11,7 @@
 pub mod scrubber;
 
 pub use fedlex_core::Sensitive;
-pub use scrubber::{AttributeAllowlist, ScrubbedSpan, SpanScrubber, REDACTED};
+pub use scrubber::{AttributeAllowlist, REDACTED, ScrubbedSpan, SpanScrubber};
 
 /// Name des Crates, dient als Smoke-Test-Anker.
 pub const CRATE_NAME: &str = "fedlex-telemetry";

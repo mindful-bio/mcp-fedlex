@@ -13,8 +13,9 @@
 //! - ein `Projected`-Tool nicht (mehr) registriert ist,
 //! - ein registriertes Tool weder in der Matrix noch als Composite verbucht ist
 //!   (verwaist),
-//! - oder die dokumentierte Zähl-Invariante (21 projiziert / 26 ausgeschlossen,
-//!   + 1 Composite ohne Lexikon-Primitiv = 22 MCP-Tools) bricht.
+//! - oder die dokumentierte Zähl-Invariante (24 projiziert / 23 ausgeschlossen,
+//!   + 1 Composite ohne Lexikon-Primitiv = 25 MCP-Tools) bricht.
+
 //!
 //! ## Composite-Tools ohne Lexikon-Primitiv
 //!
@@ -40,8 +41,8 @@ use std::sync::Arc;
 use fedlex_bridge::{AknFetcher, MockXmlSource};
 use fedlex_jolux::MockSparqlClient;
 use mcp_reader::{
-    register_discovery_tools, register_metadata_tools, register_navigation_tools, Registry, Role,
-    ToolPool,
+    Registry, Role, ToolPool, register_discovery_tools, register_metadata_tools,
+    register_navigation_tools,
 };
 use regex::Regex;
 
@@ -154,7 +155,7 @@ const MATRIX: &[(&str, Projection)] = &[
     ),
     ("JLX-VOC-02", Excluded("list_vocabulary — dito")),
     ("JLX-VOC-03", Excluded("explore_node — dito")),
-    // ----- AKN (20): 8 projiziert / 12 ausgeschlossen -----
+    // ----- AKN (20): 11 projiziert / 9 ausgeschlossen -----
     (
         "AKN-DOC-01",
         Excluded("fetch_akn_document — produktive Bridge-Komposition, interner Fetch"),
@@ -188,22 +189,13 @@ const MATRIX: &[(&str, Projection)] = &[
         "AKN-REF-02",
         Excluded("G-2: Nutzwert-Lücke, zurückgestellt"),
     ),
-    (
-        "AKN-CMP-01",
-        Excluded("G-2: Nutzwert-Lücke, zurückgestellt"),
-    ),
+    ("AKN-CMP-01", Projected("list_components")),
     (
         "AKN-CMP-02",
-        Excluded("G-2: Nutzwert-Lücke, zurückgestellt"),
+        Excluded("get_component_document — interner Helper, von list_components abgedeckt"),
     ),
-    (
-        "AKN-SPC-01",
-        Excluded("G-2: Nutzwert-Lücke, zurückgestellt"),
-    ),
-    (
-        "AKN-SPC-02",
-        Excluded("G-2: Nutzwert-Lücke, zurückgestellt"),
-    ),
+    ("AKN-SPC-01", Projected("extract_tables")),
+    ("AKN-SPC-02", Projected("detect_foreign_content")),
     ("AKN-CHK-01", Excluded("RAG: semantic-fedlex-Ingest")),
     ("AKN-CHK-02", Excluded("RAG: semantic-fedlex-Ingest")),
 ];
@@ -348,7 +340,8 @@ fn lexicon_and_tool_projection_are_consistent() {
     // Erwartet = projizierte Lexikon-Primitive ∪ Composite-Tools (ohne Lexikon-ID).
     let expected = expected_registered_tools();
     assert_eq!(
-        expected, registered,
+        expected,
+        registered,
         "Erwartete Tools (Matrix ∪ Composite) und registrierte Tools (Registry) müssen identisch sein.\n\
          nur erwartet: {:?}\n  nur in Registry (verwaist → Matrix- oder COMPOSITE_TOOLS-Eintrag nötig): {:?}",
         expected.difference(&registered).collect::<Vec<_>>(),
@@ -356,8 +349,8 @@ fn lexicon_and_tool_projection_are_consistent() {
     );
 
     // --- Assertion 4: Zähl-Invariante (Doku-Anker) ---
-    // 47 Lexikon-IDs: 21 projiziert / 26 ausgeschlossen; + 1 Composite ohne
-    // Lexikon-Primitiv ⇒ 22 registrierte MCP-Tools.
+    // 47 Lexikon-IDs: 24 projiziert / 23 ausgeschlossen; + 1 Composite ohne
+    // Lexikon-Primitiv ⇒ 25 registrierte MCP-Tools.
     let projected_count = MATRIX
         .iter()
         .filter(|(_, p)| matches!(p, Projected(_)))
@@ -367,18 +360,18 @@ fn lexicon_and_tool_projection_are_consistent() {
         .filter(|(_, p)| matches!(p, Excluded(_)))
         .count();
     assert_eq!(
-        projected_count, 21,
-        "erwartet 21 projizierte Lexikon-Primitive"
+        projected_count, 24,
+        "erwartet 24 projizierte Lexikon-Primitive"
     );
     assert_eq!(
-        excluded_count, 26,
-        "erwartet 26 ausgeschlossene Lexikon-Primitive"
+        excluded_count, 23,
+        "erwartet 23 ausgeschlossene Lexikon-Primitive"
     );
     assert_eq!(COMPOSITE_TOOLS.len(), 1, "erwartet genau 1 Composite-Tool");
     assert_eq!(
         registered.len(),
-        22,
-        "erwartet 22 registrierte MCP-Tools (21 projiziert + 1 Composite)"
+        25,
+        "erwartet 25 registrierte MCP-Tools (24 projiziert + 1 Composite)"
     );
 
     // --- Assertion 5: Pool-Zuordnung stimmt mit der Matrix-Prosa überein ---

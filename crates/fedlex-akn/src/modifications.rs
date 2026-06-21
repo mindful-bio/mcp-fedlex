@@ -4,7 +4,7 @@ use crate::doc::provenance;
 use crate::dom::AknDocument;
 use crate::error::AknError;
 use crate::structure::resolve_eid;
-use crate::text::{collect_notes, RefTarget};
+use crate::text::{RefTarget, collect_notes};
 use fedlex_core::{Response, ValidAsOf};
 use serde::{Deserialize, Serialize};
 
@@ -130,11 +130,13 @@ mod tests {
         assert_eq!(notes[0].anchor_eid.as_deref(), Some("art_1/para_2"));
         assert!(notes[0].text.contains("21. Juni 2019"));
         assert_eq!(notes[0].refs.len(), 1);
-        assert!(notes[0].refs[0]
-            .href
-            .as_deref()
-            .unwrap()
-            .contains("eli/oc/2020/752"));
+        assert!(
+            notes[0].refs[0]
+                .href
+                .as_deref()
+                .unwrap()
+                .contains("eli/oc/2020/752")
+        );
     }
 
     #[test]

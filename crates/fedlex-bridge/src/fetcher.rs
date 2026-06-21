@@ -11,7 +11,7 @@ use crate::error::BridgeError;
 use crate::xml_source::XmlSource;
 use fedlex_akn::AknDocument;
 use fedlex_core::{Eli, Response, ValidAsOf};
-use fedlex_jolux::{resolve_consolidation_at, Language, SparqlClient};
+use fedlex_jolux::{Language, SparqlClient, resolve_consolidation_at};
 use moka::future::Cache;
 use std::sync::Arc;
 

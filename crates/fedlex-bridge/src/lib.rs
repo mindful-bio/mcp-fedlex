@@ -24,7 +24,7 @@ pub mod xml_source;
 
 pub use error::BridgeError;
 pub use fetcher::AknFetcher;
-pub use sparql_http::{HttpSparqlClient, FEDLEX_ENDPOINT};
+pub use sparql_http::{FEDLEX_ENDPOINT, HttpSparqlClient};
 pub use xml_source::{HttpXmlSource, MockXmlSource, XmlSource};
 
 #[cfg(test)]

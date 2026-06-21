@@ -1,7 +1,7 @@
 //! Primitive: Völkerrecht — Staatsverträge (Lexikon JLX-TRT-01/02,
 //! Rulebook J12).
 
-use crate::client::{val, SparqlClient, PREFIXES};
+use crate::client::{PREFIXES, SparqlClient, val};
 use crate::error::JoluxError;
 use serde::{Deserialize, Serialize};
 
@@ -61,10 +61,10 @@ pub async fn get_treaty_info(
         approbation_act: val(first, "approbation").map(str::to_string),
     };
     for b in res.bindings() {
-        if let Some(c) = val(b, "country") {
-            if !info.party_countries.iter().any(|x| x == c) {
-                info.party_countries.push(c.to_string());
-            }
+        if let Some(c) = val(b, "country")
+            && !info.party_countries.iter().any(|x| x == c)
+        {
+            info.party_countries.push(c.to_string());
         }
     }
     Ok(info)

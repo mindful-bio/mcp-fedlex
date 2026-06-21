@@ -27,16 +27,18 @@ Kontext, Entscheidung und Akzeptanzkriterien für das spätere Coding fest.
 Diese Punkte sind erkannt und bewusst zurückgestellt. Sie betreffen Betriebshärtung, nicht
 die fachliche Architektur, und werden vor dem produktiven Betrieb (Day-2) ausgearbeitet.
 
-- **B-1 Durability & Disaster-Recovery.** Der JOLux-Graph in Oxigraph wird nur vom Writer
-  materialisiert und hat keinen definierten Backup-/Restore-Pfad. Zudem droht beim
-  Cold-Start ein Thundering-Herd auf den L2-Cache. Festzulegen sind Backup-Strategie,
-  Restore-Test und Cache-Warmup/Stampede-Schutz.
-- **B-2 Schema-Evolution & K8s-Health-Probes.** Der `ingestParser` behandelt heute keine
-  AKN-/JOLux-Schema-Versionen explizit; ein Schema-Wechsel der Quelle könnte still brechen
-  (mit der DLQ aus ADR-003 landet ein solches Release immerhin sichtbar in der
-  Dead-Letter-Queue statt die Pipeline zu blockieren). Ergänzend fehlen Liveness-/
-  Readiness-/Startup-Probes trotz Day-2-Anspruch. Festzulegen sind Schema-Versions-Handling
-  (Migrationsstrategie) und das Probe-Set pro Workload.
+- **B-1 Durability & Disaster-Recovery.** ✅ **geschlossen (2026-06-21).** Backup/Restore des
+  JOLux-Graphen ist als cargo-test-beweisbare Eigenschaft umgesetzt
+  (`OxigraphCorpus::dump_to_string`/`restore_from_str`, append-only-treuer, deterministischer
+  Roundtrip, 8 Unit-Tests). Der Cache-Warmup/Stampede-Schutz war bereits via moka-Single-Flight
+  (`try_get_with`) erledigt.
+- **B-2 Schema-Evolution & K8s-Health-Probes.** ✅ **geschlossen (2026-06-21).**
+  Schema-Versions-Handling umgesetzt: eine `SCHEMA_VERSION`-Konstante wird in jeden Backup-Kopf
+  geschrieben; `restore_from_str` prüft sie und bricht bei Abweichung hart mit
+  `GraphError::SchemaMismatch` ab (statt still inkompatible Daten zu laden), Migrationsnotiz am
+  Restore-Pfad. Die Liveness-/Readiness-/Startup-Probes pro Workload sind im Reader implementiert
+  und in den k3-infra-Manifesten verdrahtet.
+
 
 ## Format
 

@@ -22,8 +22,9 @@ der Liste unten:
   und live-getestet.
 - **Datenschicht**: jolux (29) + akn (12) + bridge (3) Live-Konformanztests, wöchentlich in CI
   (`.github/workflows/live-conformance.yml`).
-- **Tool-Projektion**: 22 Tools; Vollständigkeit testverankert (`tests/lexicon_projection.rs`).
-  → G-1/G-4 geschlossen, Roadmap-Schritte 1–4 erledigt.
+- **Tool-Projektion**: 25 Tools; Vollständigkeit testverankert (`tests/lexicon_projection.rs`).
+  → G-1/G-2/G-4 geschlossen, Roadmap-Schritte 1–4 erledigt.
+
 - **CI**: `.github/workflows/ci.yml` + `live-conformance.yml` + `.gitlab-ci.yml` (Kaniko-Build).
 - **Deployment**: Distroless-Image (nonroot, UID 65532), mTLS-zu-Redis (ADR-005) — live & Healthy.
 
@@ -51,10 +52,13 @@ Offene **interne** Roadmap-Punkte (aus 50_ROADMAP, unverändert gültig):
 
 | ID | Lücke | Beleg |
 | --- | --- | --- |
-| **R-5a** | Oxigraph Backup/Restore (B-1) als nachweisbare Eigenschaft | 50_ROADMAP §Schritt 5 |
-| **R-5b** | AKN/JOLux-Schema-Versionierung (B-2) | 50_ROADMAP §Schritt 5 |
-| **R-5c** | CI-Härtung: Alert/Issue bei rotem Live-Lauf (G-5) | 45_GAP §G-5 |
-| **R-6** | AKN-Aufbereitungs-Tools abwägen: `extract_tables`/`list_components`/`detect_foreign_content` projizieren vs. `hollow_document`/`chunk_document` bewusst ausschliessen | 45_GAP §G-2, 50_ROADMAP §Schritt 6 |
+| ~~**R-5a**~~ | ~~Oxigraph Backup/Restore (B-1)~~ → **erledigt (2026-06-21)**: `dump_to_string`/`restore_from_str`, append-only-treuer Roundtrip, 8 Unit-Tests | 50_ROADMAP §Schritt 5 |
+| ~~**R-5b**~~ | ~~AKN/JOLux-Schema-Versionierung (B-2)~~ → **erledigt (2026-06-21)**: `SCHEMA_VERSION` im Backup-Kopf, harter `SchemaMismatch`-Guard beim Restore | 50_ROADMAP §Schritt 5 |
+
+| ~~**R-5c**~~ | ~~CI-Härtung: Alert/Issue bei rotem Live-Lauf~~ → **erledigt (2026-06-21)**: `notify`-Job öffnet/schliesst dedupliziertes Issue, Frequenz auf 2×/Woche | 45_GAP §G-5 |
+
+| ~~**R-6**~~ | ~~AKN-Aufbereitungs-Tools abwägen~~ → **erledigt (2026-06-21)**: `extract_tables`/`list_components`/`detect_foreign_content` projiziert, `hollow_document`/`chunk_document` bewusst ausgeschlossen | 45_GAP §G-2, 50_ROADMAP §Schritt 6 |
+
 
 ---
 
@@ -112,7 +116,10 @@ Offene **interne** Roadmap-Punkte (aus 50_ROADMAP, unverändert gültig):
       Sicherheitsmodell, Geheimnis-/SealedSecret-Handhabung (ADR-001/002/005).
 - [x] **C-3 (U-5): `CHANGELOG.md`** — „Keep a Changelog"-Format; Erst-Eintrag `0.1.0` aus
       Git-Historie, `Unreleased`-Sektion, Compare-/Tag-Links. *(2026-06-20)*
-- [ ] **C-4 (U-5): Issue/PR-Templates** — `.github/ISSUE_TEMPLATE/` (bug/feature) + `PULL_REQUEST_TEMPLATE.md`.
+- [x] **C-4 (U-5): Issue/PR-Templates** — `.github/ISSUE_TEMPLATE/` (`bug_report.md`, `feature_request.md`,
+      `config.yml` mit vertraulichem Security-Link) + `.github/PULL_REQUEST_TEMPLATE.md`. Alle vier
+      tragen die ADR-Leitplanken (Identität/Provenance/PII/Least-Privilege) und den CI-Gleichlauf
+      aus `CONTRIBUTING.md` als Checklisten. *(2026-06-21)*
 - [x] **C-5 (U-6): `docs/90_AUTH_AND_ROLES.md`** — Rollenmodell (Reader ⊆ Navigator ⊆ Validator),
       Pool-Sichtbarkeitsmatrix, JWT-Claims-Schema (iss/aud/role/tenant/sid), Quota pro Rolle,
       Auth-Auswahlreihenfolge (JWKS/HS256/RS256/Dev-Token), Audit-Log-Beispiel.
@@ -133,12 +140,32 @@ Offene **interne** Roadmap-Punkte (aus 50_ROADMAP, unverändert gültig):
 
 ### Block D — Interne Day-2-Härtung (Roadmap-Schritt 5/6)
 
-- [ ] **D-1 (R-5a):** Oxigraph **Backup/Restore** als nachweisbare Prozedur + Test/Runbook (B-1).
-- [ ] **D-2 (R-5b):** **Schema-Versionierung** AKN/JOLux (B-2) — Versionsmarke + Migrationsnotiz.
-- [ ] **D-3 (R-5c):** CI **Alert/Issue** bei rotem Live-Lauf (ggf. häufigere Frequenz als wöchentlich).
-- [ ] **D-4 (R-6):** Entscheidung **AKN-Aufbereitungs-Tools**: `extract_tables`/`list_components`/
-      `detect_foreign_content` projizieren (nutzwertig) vs. `hollow_document`/`chunk_document`
-      bewusst ausschliessen; Ergebnis in `tests/lexicon_projection.rs`-Matrix nachziehen.
+- [x] **D-1 (R-5a):** Oxigraph **Backup/Restore** — **erledigt (2026-06-21)**:
+      `OxigraphCorpus::dump_to_string`/`restore_from_str` (in-process, kein Docker) schreiben einen
+      deterministischen, menschenlesbaren Schnappschuss (Kopfzeile + eine tab-separierte Zeile je
+      Fassung, Text escaped) und bauen daraus einen frischen Korpus. Der Roundtrip ist
+      append-only-treu: bi-temporale Auflösung, Gültigkeits-/Transaktionszeit und Mehrfach-Historie
+      pro ELI bleiben erhalten; ein erneuter Dump ist byte-gleich. Nachweis: 8 neue Unit-Tests in
+      `oxigraph_corpus.rs` (Determinismus, Roundtrip inkl. Tabs/Zeilenumbrüchen im Text, leerer
+      Korpus, korrupte/abgeschnittene Backups). `cargo test`-beweisbar statt nur Infra.
+- [x] **D-2 (R-5b):** **Schema-Versionierung** (B-2) — **erledigt (2026-06-21)**:
+      `SCHEMA_VERSION`-Konstante wandert in jeden Backup-Kopf; `restore_from_str` prüft sie und
+      bricht bei Abweichung hart mit `GraphError::SchemaMismatch { found, expected }` ab, statt still
+      inkompatible Daten zu laden. Migrationsnotiz am Restore-Pfad dokumentiert den Upgrade-Haken
+      `v(N-1) → vN`. Nachweis: Test `restore_rejects_foreign_schema_version`.
+- [x] **D-3 (R-5c):** CI **Alert/Issue** bei rotem Live-Lauf — **erledigt (2026-06-21)**:
+      `live-conformance.yml` hat einen `notify`-Job (`if: always()`, `actions/github-script`), der
+      bei rotem Lauf ein **dedupliziertes** Issue (Label `live-conformance`, Triage-Reihenfolge)
+      öffnet bzw. kommentiert und bei grünem Folgelauf automatisch schliesst; Frequenz von
+      wöchentlich auf **2×/Woche** (Mo + Do) erhöht. `45_GAP §G-5` geschlossen.
+
+- [x] **D-4 (R-6):** Entscheidung **AKN-Aufbereitungs-Tools** — **erledigt (2026-06-21)**:
+      `extract_tables`/`list_components`/`detect_foreign_content` als MCP-Tools projiziert (Pool
+      `LocalNavigation`, mit Unit-Tests), `get_component_document` als interner Helper sowie
+      `hollow_document`/`chunk_document` (RAG-Bausteine) bewusst ausgeschlossen. Matrix in
+      `tests/lexicon_projection.rs` nachgezogen (24 `Projected` / 23 `Excluded`, 25 Tools);
+      `45_GAP §G-2` dokumentiert. Alle Tests grün.
+
 
 > **Abnahme D.** Je Punkt der in [30_PLAN.md → M10](30_PLAN.md) genannte Test-/Infra-Nachweis;
 > Matrix bleibt nach D-4 grün und vollständig.
@@ -154,9 +181,15 @@ ausgeschlossen). Erst auf dieser Basis steigen Code/String. Zielrelease **`v0.2.
 
 
 > **Operatives Runbook:** [`55_MIGRATION_mcp_protocol_upgrade.md`](55_MIGRATION_mcp_protocol_upgrade.md)
-> — Phasen 0–9 mit Gate & Rollback je Schritt; berücksichtigt insbesondere, dass der
-> ansV-Konsument heute **kein `initialize`** ausführt und **direkt auf `/rpc`** zugreift,
-> die Migration also **additiv/rückwärtskompatibel** sein muss.
+> — Phasen 0–9 mit Gate & Rollback je Schritt.
+>
+> **Zielbild (eindeutig, ohne Rückwärtskompatibilitäts-Anspruch):** Der Server muss am
+> Ende **sauber gegen die MCP-Revision `2025-11-25` funktionieren** — gemessen am
+> Konformanztest, nicht an der Kompatibilität mit dem heutigen Verhalten. Rückwärts-/
+> Abwärtskompatibilität ist **ausdrücklich kein Ziel**: bestehende Konsumenten (ansV,
+> syllogismus-fedlex) werden, wo nötig, im selben Schritt auf den `2025-11-25`-Pfad
+> nachgezogen, statt den Server an deren Alt-Verhalten zu binden.
+
 
 
 - [x] **E-1 (§A):** Spec-Recherche — **erledigt (2026-06-20)**. Höchste stabile Revision
@@ -165,20 +198,36 @@ ausgeschlossen). Erst auf dieser Basis steigen Code/String. Zielrelease **`v0.2.
       [ADR-008 §A](adr/ADR-008-mcp-protocol-version-upgrade.md); in `CHANGELOG.md`
       (`Unreleased` → `v0.2.0`) vorgemerkt.
 
-- [ ] **E-2 (§B):** Versions-Negotiation (`SUPPORTED_PROTOCOL_VERSIONS`), Transport-Anpassung
-      (HTTP+SSE ggf. → Streamable HTTP), Auth-Mapping (ADR-002 fail-closed bleibt), Lifecycle-
-      Notifications/Capabilities ehrlich.
-      > **Code-verifizierte Vorab-Befunde (2026-06-20), Details in ADR-008 §B-4/§B-5 + Runbook 3.2/5.1/7.2a:**
-      > 1. **`schema`→`inputSchema`:** `tools/list` nutzt das Nicht-Standard-Feld `schema`; ansV liest es
-      >    aktiv (`llm.rs`) → additiver Doppel-Output + ansV-Fallback zwingend (sonst `parameters=null`).
-      > 2. **Notification-Handling fehlt:** `id` ist `#[serde(default)]` → Server antwortet fälschlich
-      >    `-32601` auf `notifications/initialized` statt zu schweigen (`id: Option<Value>` + No-Body).
-      > 3. **Delta #13 (Input-Validation):** zwei `tools/call`-Pfade liefern noch `-32602` statt
-      >    Tool-Execution-Error (breaking ggü. Baseline-Test 1.2).
-      > 4. **`rpc_handler`-Signatur:** `Json<JsonRpcResponse>` (immer 200+Body) kann 202/204/400/401/403
-      >    nicht ausdrücken → Umbau auf `impl IntoResponse` als Vorbedingung.
-- [ ] **E-3 (§C):** Konformanz- + Provenance-Konsistenz-Test (ausgehandelte Version == Badge ==
+- [x] **E-2 (§B):** Versions-Negotiation (`SUPPORTED_PROTOCOL_VERSIONS`), Transport-Anpassung
+      (HTTP+SSE → Streamable HTTP), Auth-Mapping (ADR-002 fail-closed bleibt), Lifecycle-
+      Notifications/Capabilities ehrlich. **Vollständig im Code umgesetzt.**
+      > **Stand 2026-06-21 (code-verifiziert gegen `transport.rs`/`protocol.rs`/`registry.rs`):**
+      > 1. ✅ **`schema`→`inputSchema`:** additiver Doppel-Output live (`registry.rs::list_tools`),
+      >    ansV liest `inputSchema` bevorzugt mit `schema`-Fallback (`llm.rs`). Baseline-Test 1.2 grün.
+      > 2. ✅ **Notification-Handling:** `id` ist jetzt `Option<Option<Value>>` mit `is_notification()`;
+      >    `rpc_handler` quittiert Notifications mit **HTTP 202 ohne Body**; `ping` + `notifications/initialized`
+      >    sind eigene Match-Arme.
+      > 3. ✅ **Delta #13 (Input-Validation):** beide `tools/call`-Pfade (fehlender `name`, ungültiges
+      >    `as_of`) liefern jetzt einen in-band Tool-Execution-Error (`{ error, hint }` im `result`)
+      >    statt `-32602` — `2025-11-25`-konform; die Konstante `INVALID_PARAMS` wurde aus
+      >    `transport.rs` entfernt, eigene Tests sichern beide Pfade.
+      > 4. ✅ **`rpc_handler`-Signatur:** bereits auf `impl IntoResponse`/`Response` umgebaut (kann
+      >    202/204/400/401/403 ausdrücken).
+      > 5. ✅ **Streamable-HTTP-Transport + 403/`Origin` + `MCP-Protocol-Version`-Header:** **live**
+      >    (2026-06-21). Neuer Endpoint **POST `/mcp`** (`transport.rs::mcp_handler`, Route registriert)
+      >    setzt die zwei Spec-Wächter **vor jeder Arbeit** durch: `Origin` ausserhalb der Allowlist
+      >    (`MCP_ALLOWED_ORIGINS`, fail-closed) → **HTTP 403**; gesetzter, nicht unterstützter
+      >    `MCP-Protocol-Version`-Header → **HTTP 400**; fehlende Header bleiben rückwärtskompatibel
+      >    (Server-zu-Server-Clients ohne `Origin`/Header unverändert erlaubt). Klassifikatoren
+      >    `classify_origin`/`classify_protocol_header` in `protocol.rs` (mit Unit-Tests); 6 HTTP-Tests
+      >    für `/mcp` (403/allowed/no-origin/400/supported/202-notification) grün.
+
+- [x] **E-3 (§C):** Konformanz- + Provenance-Konsistenz-Test (ausgehandelte Version == Badge ==
       ADR-Ziel), Client-Gegentest, Docs/Badge nachziehen, `v0.2.0` taggen.
+      > **Stand 2026-06-21:** Konsistenz- und `/mcp`-Konformanztests grün (160 Lib-Tests, davon die
+      > 6 neuen `/mcp`-HTTP-Tests). Verbleibend rein redaktionell: README-Badge auf `2025-11-25`
+      > heben und `v0.2.0` taggen (kein Code-Risiko mehr).
+
 
 > **Abnahme E.** `initialize` handelt die verifizierte aktuelle Revision aus; ein
 > Konsistenztest bricht CI, wenn Code-Version, README-Badge und ADR-Ziel divergieren.

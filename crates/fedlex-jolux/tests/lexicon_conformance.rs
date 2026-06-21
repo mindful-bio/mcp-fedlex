@@ -26,13 +26,13 @@
 
 use async_trait::async_trait;
 use fedlex_jolux::{
-    check_in_force, explore_node, find_related_by_topic, find_treaties, get_article_history,
-    get_citations, get_consultation_documents, get_consultations, get_drafts, get_fga_documents,
-    get_impacts, get_law_metadata, get_memorial, get_oc_act, get_outgoing_impacts,
-    get_subdivisions, get_taxonomy, get_treaty_info, list_annexes, list_expressions, list_versions,
-    list_vocabulary, resolve_consolidation_at, resolve_manifestation, resolve_sr_number,
-    resolve_vocabulary_label, search_law, CitationDirection, JoluxError, Language,
-    ManifestationFormat, SparqlClient, SparqlResults, PREFIXES,
+    CitationDirection, JoluxError, Language, ManifestationFormat, PREFIXES, SparqlClient,
+    SparqlResults, check_in_force, explore_node, find_related_by_topic, find_treaties,
+    get_article_history, get_citations, get_consultation_documents, get_consultations, get_drafts,
+    get_fga_documents, get_impacts, get_law_metadata, get_memorial, get_oc_act,
+    get_outgoing_impacts, get_subdivisions, get_taxonomy, get_treaty_info, list_annexes,
+    list_expressions, list_versions, list_vocabulary, resolve_consolidation_at,
+    resolve_manifestation, resolve_sr_number, resolve_vocabulary_label, search_law,
 };
 use time::macros::date;
 

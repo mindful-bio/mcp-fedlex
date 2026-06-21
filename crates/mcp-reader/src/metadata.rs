@@ -44,12 +44,12 @@ use crate::tool::{McpTool, ToolContext, ToolError, ToolPool};
 use async_trait::async_trait;
 use fedlex_core::{Eli, Response};
 use fedlex_jolux::{
-    check_in_force, get_article_history, get_citations, get_impacts, get_outgoing_impacts,
-    get_subdivisions, get_taxonomy, list_annexes, list_versions, resolve_consolidation_at,
-    CitationDirection, JoluxError, Language, SparqlClient,
+    CitationDirection, JoluxError, Language, SparqlClient, check_in_force, get_article_history,
+    get_citations, get_impacts, get_outgoing_impacts, get_subdivisions, get_taxonomy, list_annexes,
+    list_versions, resolve_consolidation_at,
 };
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// Registriert alle JOLux-Metadaten-Tools (Tranche A) an der Registry.
@@ -1053,10 +1053,12 @@ mod tests {
         assert!(out.get("error").is_none(), "unerwarteter Fehler: {out}");
         let subs = out["data"].as_array().expect("subdivisions-Array");
         assert_eq!(subs.len(), 2);
-        assert!(subs[0]["subdivision_type"]
-            .as_str()
-            .unwrap()
-            .ends_with("/article"));
+        assert!(
+            subs[0]["subdivision_type"]
+                .as_str()
+                .unwrap()
+                .ends_with("/article")
+        );
         assert_eq!(out["provenance"]["kind"], "norm");
         assert_eq!(out["provenance"]["eli"], "eli/cc/2017/762");
     }

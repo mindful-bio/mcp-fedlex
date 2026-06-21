@@ -26,9 +26,9 @@ use crate::tool::{McpTool, ToolContext, ToolError, ToolPool};
 use async_trait::async_trait;
 use fedlex_core::{Eli, Provenance, Response};
 use fedlex_jolux::{
-    find_related_by_topic, resolve_sr_number, search_law, JoluxError, Language, SparqlClient,
+    JoluxError, Language, SparqlClient, find_related_by_topic, resolve_sr_number, search_law,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// Registriert alle Discovery-Tools an der Registry.
@@ -113,12 +113,12 @@ fn query_hint(ctx: &ToolContext, gattung: &str) -> Result<Provenance, ToolError>
 /// trägt laut Primitiv ein gültiges relatives ELI), wird der Treffer ohne
 /// Provenance-Block durchgereicht statt den ganzen Call zu kippen.
 fn annotate_hit(ctx: &ToolContext, mut hit: Value) -> Value {
-    if let Some(eli_str) = hit.get("eli").and_then(Value::as_str) {
-        if let Ok(eli) = Eli::new(eli_str) {
-            let prov = ctx.stamp.into_hint_provenance(eli);
-            if let (Some(obj), Ok(prov_val)) = (hit.as_object_mut(), to_value(prov)) {
-                obj.insert("provenance".into(), prov_val);
-            }
+    if let Some(eli_str) = hit.get("eli").and_then(Value::as_str)
+        && let Ok(eli) = Eli::new(eli_str)
+    {
+        let prov = ctx.stamp.into_hint_provenance(eli);
+        if let (Some(obj), Ok(prov_val)) = (hit.as_object_mut(), to_value(prov)) {
+            obj.insert("provenance".into(), prov_val);
         }
     }
     hit

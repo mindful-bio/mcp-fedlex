@@ -15,8 +15,8 @@
 //! Verkehr auf einen warmen Cache.
 
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Single-Flight-Cache mit fehlbarem Lader und Lade-Zähler.
 ///

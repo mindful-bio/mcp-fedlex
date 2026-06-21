@@ -7,8 +7,8 @@
 
 use crate::error::BridgeError;
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Quelle für AKN-XML-Manifestationen.
 #[async_trait]

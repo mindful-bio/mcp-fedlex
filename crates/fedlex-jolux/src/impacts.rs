@@ -1,6 +1,6 @@
 //! Primitive: Änderungshistorie (Impacts) eines Erlasses (Rulebook J6).
 
-use crate::client::{val, SparqlClient, PREFIXES};
+use crate::client::{PREFIXES, SparqlClient, val};
 use crate::{eli_uri, error::JoluxError};
 use fedlex_core::{Eli, Provenance, Response, TransactionTime, ValidAsOf};
 use serde::{Deserialize, Serialize};
@@ -206,11 +206,13 @@ mod tests {
             resp.data()[0].date_entry_in_force.as_deref(),
             Some("2020-06-01")
         );
-        assert!(resp.data()[1]
-            .from
-            .as_deref()
-            .unwrap()
-            .contains("eli/oc/2022/700"));
+        assert!(
+            resp.data()[1]
+                .from
+                .as_deref()
+                .unwrap()
+                .contains("eli/oc/2022/700")
+        );
 
         // Provenance = Historie dieses Erlasses.
         assert_eq!(resp.provenance().eli.as_str(), "eli/cc/2017/762");

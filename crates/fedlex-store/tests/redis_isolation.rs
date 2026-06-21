@@ -6,8 +6,8 @@
 
 #![cfg(feature = "redis-store")]
 
-use fedlex_store::key::{SessionId, TenantContext, TenantId};
 use fedlex_store::RedisScratchpad;
+use fedlex_store::key::{SessionId, TenantContext, TenantId};
 use testcontainers_modules::redis::Redis;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 

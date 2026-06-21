@@ -26,22 +26,22 @@ mod special;
 mod structure;
 mod text;
 
-pub use chunking::{chunk_document, hollow_document, Chunk, ChunkMetadata, HollowedElement};
-pub use components::{get_component_document, list_components, ComponentInfo};
-pub use doc::{classify_pattern, get_frbr_metadata, DocPattern, FrbrMetadata, PatternInfo};
+pub use chunking::{Chunk, ChunkMetadata, HollowedElement, chunk_document, hollow_document};
+pub use components::{ComponentInfo, get_component_document, list_components};
+pub use doc::{DocPattern, FrbrMetadata, PatternInfo, classify_pattern, get_frbr_metadata};
 pub use dom::{
-    is_hierarchy_tag, normalize_eid, normalize_text, AknDocument, Content, NodeId, HIERARCHY_TAGS,
+    AknDocument, Content, HIERARCHY_TAGS, NodeId, is_hierarchy_tag, normalize_eid, normalize_text,
 };
 pub use error::AknError;
 pub use markdown::get_readable_document;
-pub use modifications::{extract_change_notes, get_modifications, ChangeNote, Modification};
-pub use references::{get_all_references, parse_unlinked_ref, ParsedRef, RefKind, Reference};
-pub use special::{detect_foreign_content, extract_tables, ForeignContent, ForeignKind, TableInfo};
+pub use modifications::{ChangeNote, Modification, extract_change_notes, get_modifications};
+pub use references::{ParsedRef, RefKind, Reference, get_all_references, parse_unlinked_ref};
+pub use special::{ForeignContent, ForeignKind, TableInfo, detect_foreign_content, extract_tables};
 pub use structure::{
-    get_document_structure, get_section_path, resolve_eid, EidHit, OutlineNode, PathStep,
+    EidHit, OutlineNode, PathStep, get_document_structure, get_section_path, resolve_eid,
 };
 pub use text::{
-    get_article_text, get_element_text, search_text, ElementText, Note, RefTarget, SearchHit,
+    ElementText, Note, RefTarget, SearchHit, get_article_text, get_element_text, search_text,
 };
 
 /// Geteilte Test-Fixture — ein EnG-artiges Mini-Dokument, das alle

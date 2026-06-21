@@ -12,8 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 /// Vorangestellte PREFIX-Deklarationen für alle JOLux-Queries (Rulebook J0.2).
-pub const PREFIXES: &str =
-    "PREFIX jolux: <http://data.legilux.public.lu/resource/ontology/jolux#>\n\
+pub const PREFIXES: &str = "PREFIX jolux: <http://data.legilux.public.lu/resource/ontology/jolux#>\n\
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n";
 

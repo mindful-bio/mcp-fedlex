@@ -17,14 +17,14 @@
 //! Der Kern ([`HealthState`]) ist ohne Netzwerk testbar. Der axum-Router
 //! ([`health_router`]) verdrahtet ihn an HTTP.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Json;
 use axum::routing::get;
-use axum::Router;
 use serde_json::json;
 
 /// Eine benannte Bereitschaftsprüfung einer Abhängigkeit.
