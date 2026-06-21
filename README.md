@@ -77,7 +77,9 @@ heute.
 
 ## An einen MCP-Client anbinden
 
-Der Server spricht MCP über SSE/JSON-RPC (Protokoll `2024-11-05`):
+Der Server spricht MCP über SSE/JSON-RPC (Protokoll `2025-11-25`; ein explizit
+`2024-11-05` anfragender Alt-Client erhält weiterhin `2024-11-05`):
+
 
 - **SSE-Strom:** `GET /sse` — liefert die POST-Adresse für Nachrichten.
 - **JSON-RPC:** `POST /rpc` — Methoden `initialize`, `tools/list`, `tools/call`.
@@ -89,10 +91,15 @@ Beispiel `initialize`:
 curl -s -X POST http://localhost:8080/rpc \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":0,"method":"initialize"}' | jq
-# -> { "protocolVersion":"2024-11-05",
+# -> { "protocolVersion":"2025-11-25",
 #      "serverInfo":{"name":"mcp-fedlex-reader", ...},
 #      "capabilities":{"tools":{}} }
 ```
+
+> Ohne `protocolVersion` im Request handelt der Server die Default-Revision
+> `2025-11-25` aus. Ein Client, der explizit `"protocolVersion":"2024-11-05"`
+> sendet, erhält weiterhin `2024-11-05` (Rückwärtskompatibilität für Alt-Clients).
+
 
 Für Clients mit JSON-Konfiguration (z. B. Claude Desktop über einen SSE/HTTP-Bridge-
 Connector) genügen Basis-URL `http://localhost:8080` und das Bearer-Token.

@@ -335,3 +335,48 @@ async fn unknown_method_is_method_not_found() {
         "unbekannte Methode → METHOD_NOT_FOUND (heutiger Footprint: nur initialize/tools.*)"
     );
 }
+
+// ============================================================
+// Provenance-/Doku-Konsistenz (Runbook 6.4): Drift-Schutz.
+//
+// Verhindert genau den Fehler, der beim Default-Flip auf `2025-11-25`
+// real auftrat: Code-Default angehoben, aber README/CHANGELOG sagten noch
+// die alte Version. Dieser Offline-Test bricht, sobald die im Code
+// ausgehandelte Default-Revision (`DEFAULT_PROTOCOL_VERSION`) nicht mehr
+// wörtlich in den nutzerseitigen Dokumenten steht — die „ehrliche
+// Provenance"-Regel des Runbooks wird damit mechanisch erzwungen statt
+// per Hand gepflegt.
+// ============================================================
+
+/// Liest eine Repo-Datei relativ zum Crate-Root (`CARGO_MANIFEST_DIR` =
+/// `crates/mcp-reader`); die Doku liegt zwei Ebenen höher im Repo-Root.
+fn read_repo_doc(rel_from_repo_root: &str) -> String {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    let path = repo_root.join(rel_from_repo_root);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Doku-Datei {rel_from_repo_root} nicht lesbar: {e}"))
+}
+
+#[test]
+fn readme_documents_the_negotiated_default_version() {
+    let readme = read_repo_doc("README.md");
+    assert!(
+        readme.contains(mcp_reader::DEFAULT_PROTOCOL_VERSION),
+        "README.md nennt die ausgehandelte Default-Version `{}` nicht — \
+         Doku driftet vom Code (Runbook 6.4). README beim Versions-Flip mitziehen.",
+        mcp_reader::DEFAULT_PROTOCOL_VERSION
+    );
+}
+
+#[test]
+fn changelog_documents_the_negotiated_default_version() {
+    let changelog = read_repo_doc("CHANGELOG.md");
+    assert!(
+        changelog.contains(mcp_reader::DEFAULT_PROTOCOL_VERSION),
+        "CHANGELOG.md nennt die ausgehandelte Default-Version `{}` nicht — \
+         Doku driftet vom Code (Runbook 6.4). CHANGELOG beim Versions-Flip mitziehen.",
+        mcp_reader::DEFAULT_PROTOCOL_VERSION
+    );
+}

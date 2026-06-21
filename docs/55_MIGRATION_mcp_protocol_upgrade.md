@@ -316,18 +316,37 @@ abgleichen, **ohne** fail-closed aufzuweichen.
 
 **Ziel:** Erst jetzt wird die ausgehandelte **Default**-Version auf die Ziel-Revision gehoben.
 
-- [ ] **6.1 ansV zuerst vorbereiten.** Falls die neue Default-Version vom ansV-Client einen
-      `initialize`-Handshake oder neuen Transport erfordert: **zuerst ansV anpassen** (siehe
-      Phase 7) und deployen, *dann* erst die Server-Default kippen.
-- [ ] **6.2 Config-Flip.** `MCP_PROTOCOL_DEFAULT` auf Ziel-Revision (dank 2.3 ohne Code-Redeploy).
-- [ ] **6.3 Konformanztest umstellen.** Baseline 1.1 auf die neue Version aktualisieren; alter
-      Wert bleibt als „Alt-Client-Negotiation"-Test erhalten.
-- [ ] **6.4 Provenance-Konsistenztest.** Test, der **bricht**, wenn
-      Code-Default ≠ README-Badge ≠ ADR-008-Ziel.
+- [x] **6.1 ansV zuerst vorbereiten — erledigt (2026-06-20).** Geprüft: Beide Alt-Clients (ansV
+      `McpClient`, syllogismus-fedlex `McpFedlexClient`) rufen `POST /rpc` **ohne `initialize`** und
+      lesen `protocolVersion` nicht aus → der Default-Flip ist für sie **nicht breaking**. Es war also
+      keine ansV-Vorabanpassung nötig; Reihenfolge (7.4) bleibt dennoch dokumentiert für den späteren
+      Transport-Schnitt (Phase 9).
+- [x] **6.2 Default-Anhebung — erledigt & live (2026-06-20).** **Abweichung vom ursprünglichen Plan,
+      bewusst:** statt eines reinen `MCP_PROTOCOL_DEFAULT`-Env-Flips wurde die **Kompilier-Default**
+      `DEFAULT_PROTOCOL_VERSION` in `protocol.rs` auf `2025-11-25` gehoben (der Server wurde ohnehin neu
+      gebaut und per Digest gepinnt). Der Env-Pfad `default_protocol_version()` bleibt als
+      **Rollback-Hebel** erhalten und hat Vorrang vor der Konstante, solange der Wert unterstützt ist.
+      Deployt via ArgoCD (Digest `sha256:f0da0971…eb0da56`, k3-infra `reader.yaml`). **Live verifiziert**
+      (port-forward, Navigator-JWT): Default & zu neue Client-Version → `2025-11-25`; explizit
+      `2024-11-05` → `2024-11-05`.
+- [x] **6.3 Konformanztest umgestellt — erledigt (2026-06-20).** `tests/protocol_baseline.rs` assertet
+      jetzt `protocolVersion == "2025-11-25"` für den handshake-losen `initialize`; die
+      Alt-Client-Negotiation (`2024-11-05`) ist separat im Transport-Modul gedeckt
+      (`initialize_echoes_supported_client_version`).
+- [x] **6.4 Provenance-Konsistenztest — erledigt (2026-06-20).** Zwei Offline-Tests in
+      `tests/protocol_baseline.rs` (`readme_documents_the_negotiated_default_version`,
+      `changelog_documents_the_negotiated_default_version`) brechen, sobald die Code-Konstante
+      `DEFAULT_PROTOCOL_VERSION` **nicht** mehr wörtlich in README **bzw.** CHANGELOG steht. Damit ist
+      genau der reale Flip-Fehler (Code gehoben, Doku alt) künftig **mechanisch** ausgeschlossen statt
+      handgepflegt. `cargo test -p mcp-reader --test protocol_baseline` → **8 passed**.
 
-**Gate 6:** Neuer Default ausgehandelt; ansV (Phase 7) bereits kompatibel deployt; Konsistenztest grün;
-**Vorbedingung: Image-Pin aus 1.5 erledigt** (sonst kein belastbarer Image-Rollback).
-**Rollback:** `MCP_PROTOCOL_DEFAULT` zurück auf `2024-11-05` (sofortiger Config-Flip).
+**Gate 6:** ✅ **grün (2026-06-20).** Neuer Default `2025-11-25` ausgehandelt & live (6.2); beide
+Alt-Konsumenten nachweislich unberührt (6.1); Konformanztest umgestellt (6.3); Doku-Drift-Schutz
+automatisiert (6.4); Image-Pin aus 1.5 erledigt.
+**Rollback:** `MCP_PROTOCOL_DEFAULT=2024-11-05` (sofortiger Config-Flip, Vorrang vor Kompilier-Default)
+**oder** Image-Digest auf den Vorgänger zurück (k3-infra `reader.yaml`).
+
+
 
 ---
 
@@ -400,10 +419,11 @@ abgleichen, **ohne** fail-closed aufzuweichen.
 | Transport-Deprecation bricht ansV | mittel | hoch | Doppelpfad (Phase 3), ansV zuerst (Phase 7), Default-Flip zuletzt (Phase 6) |
 | ansV ohne `initialize` zerbricht an Pflicht-Handshake | mittel | hoch | Default-Version für fehlende Client-Version beibehalten (2.2) |
 | Auth-Modell verlangt Pflicht-Metadaten | niedrig–mittel | mittel | additive Header/Discovery (Phase 4), fail-closed unangetastet |
-| Falsche Provenance (Badge ≠ Verhalten) | niedrig | hoch (Vertrauensbruch) | Konsistenztest (6.4), Badge erst in 8.3 |
+| Falsche Provenance (Doku ≠ Verhalten) | niedrig | hoch (Vertrauensbruch) | **automatisierter Drift-Test (6.4, erledigt)**: README/CHANGELOG vs. `DEFAULT_PROTOCOL_VERSION`; MCP-Badge erst in 8.3 |
 | Stiller Bruch der Datenschicht | niedrig | hoch | Konformanzlauf als Gate (8.2) |
-| Kein exakter Image-Rollback: Deployment auf `:latest` (`imagePullPolicy: Always`) | hoch (heute real) | hoch | Entschärfbar: CI pusht bereits `:<sha>`/`:vX.Y.Z` (Tags liegen in der Registry); vor Phase 6 Deployment auf Digest/SemVer pinnen (1.5) |
+| Kein exakter Image-Rollback: Deployment auf `:latest` (`imagePullPolicy: Always`) | ~~hoch~~ → **entschärft (1.5)** | hoch | Deployment auf Digest `@sha256:…911d3` + `IfNotPresent` gepinnt (k3-infra Commit `f9abdd3`); exakter Rollback-Anker steht |
 | Feldname `schema`→`inputSchema` bricht ansV (liest `schema` aktiv, `llm.rs`) | hoch (bei hartem Schnitt) | hoch | Additiver Doppel-Output beider Felder; ansV-Fallback-Update (7.2a) vor Phase-9-Bereinigung |
+
 
 ## Abbruch-/Pausen-Regel
 

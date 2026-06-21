@@ -16,16 +16,27 @@ und das Projekt folgt [Semantic Versioning](https://semver.org/lang/de/).
   Runbook 55 Schritt 7.2a). Der Baseline-Test fixiert Präsenz und Wertgleichheit
   beider Felder; bestehende Clients (ansV, syllogismus-fedlex) bleiben unberührt.
 
+- **MCP-Protokoll-Default auf `2025-11-25` angehoben (live seit 2026-06-20).**
+  Der `initialize`-Handshake handelt jetzt die höchste stabile Spec-Revision
+  `2025-11-25` aus; `2024-11-05` bleibt für explizit nachfragende Alt-Clients
+  (Negotiation) erhalten. Umgesetzt als Anhebung der Kompilier-Default
+  `DEFAULT_PROTOCOL_VERSION` (nicht als reiner Env-Flip — Abweichung vom
+  ursprünglichen Runbook-Plan 6.2, bewusst, weil der Server ohnehin neu gebaut
+  und per Digest gepinnt wird). Rollback bleibt ein reiner Config-Flip:
+  `MCP_PROTOCOL_DEFAULT=2024-11-05` (Runbook 2.3) **oder** Image-Digest zurück
+  auf den Vorgänger (k3-infra `reader.yaml`). Live verifiziert (port-forward,
+  Navigator-JWT): Default & zu neue Client-Version → `2025-11-25`, Client mit
+  `2024-11-05` → exakt `2024-11-05`. Spec-Grundlage: ADR-008 §A, Runbook
+  `docs/55_MIGRATION_mcp_protocol_upgrade.md`.
+
 ### Geplant (v0.2.0)
 
 
-- **MCP-Protokoll-Upgrade auf `2025-11-25`** (höchste stabile Spec-Revision).
-  Spec-Recherche abgeschlossen (ADR-008 §A, Delta-Matrix gegen `2024-11-05`):
-  Versions-Negotiation statt hartcodierter Konstante, Streamable HTTP additiv
-  neben `/rpc`, `MCP-Protocol-Version`-Header, Lifecycle (`ping`/
-  `notifications/initialized`). Umsetzung folgt nach dem Runbook
-  `docs/55_MIGRATION_mcp_protocol_upgrade.md`. Bis `v0.2.0` bleibt der Handshake
-  ehrlich bei `2024-11-05`.
+- **Streamable-HTTP-Transport** additiv neben `/rpc` samt
+  `MCP-Protocol-Version`-Header-Pfad (Runbook Phase 3 Rest, ADR-008 §B). Der
+  Handshake ist bereits auf `2025-11-25`; der Tag `v0.2.0` folgt erst, wenn
+  Transport-Doppelpfad und `inputSchema`-Bereinigung (Phase 9) abgeschlossen
+  sind und ADR-008 geschlossen ist (Runbook 8.4/8.5).
 
 ## [0.1.0] - 2026-06-20
 
