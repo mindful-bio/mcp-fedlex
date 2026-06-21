@@ -205,6 +205,23 @@ Reihenfolge bewusst: Handshake → Transport → Auth → optionale Features.
 - [ ] **B-3 Auth-Mapping.** Unser Bearer/JWT-Modell (ADR-002) gegen das in der
       Ziel-Revision spezifizierte Auth-Modell (z. B. OAuth2-Resource-Server)
       abgleichen; Lücken dokumentieren, fail-closed bleibt unverhandelbar.
+      > **✅ Gap-Analyse erledigt (2026-06-21, Runbook 55 §4.1, code-belegt gegen
+      > `auth.rs`+`transport.rs`):** Der Reader ist faktisch **bereits** ein OAuth-
+      > Resource-Server — `JwtAuthResolver`/`JwksAuthResolver` validieren extern
+      > ausgestellte Bearer-JWTs (Issuer Pflicht, Audience optional, `exp`, Rollen-
+      > Whitelist, JWKS-Rotation, fail-closed). **Substanz erfüllt**, nur nicht
+      > „beworben". **Echte Lücke** ist rein additiv: heute liefert ein fehlendes/
+      > ungültiges Credential **HTTP 200 + `-32001` im Body** (kein **401**, kein
+      > `WWW-Authenticate`), und es gibt **kein** `.well-known/oauth-protected-resource`
+      > (RFC 9728). **Designbefund:** Der 200+Body-Pfad ist genau das, was die zwei
+      > header-losen Alt-Clients (ansV, syllogismus-fedlex) brauchen → **401 +
+      > `WWW-Authenticate`** gehören an den **neuen** Streamable-HTTP-Pfad (B-2/Phase 3),
+      > **nicht** an Legacy-`/rpc`. **Bewusst ausgeschlossen:** OIDC-/AS-Discovery,
+      > Scope-Consent (kein OAuth-Scope-Modell — RBAC läuft über die Rolle),
+      > Client-ID-Metadata (client-seitig). Damit ist **keine** Pflicht-Lücke offen,
+      > die einen harten Schnitt erzwingt; Konformität ist additiv erreichbar,
+      > fail-closed (ADR-002) bleibt unangetastet.
+
 - [ ] **B-4 Lifecycle-Notifications.** `notifications/initialized` und `ping`
       ergänzen, falls die Ziel-Revision sie für Konformität verlangt.
       > **⚠ Code-Vorprüfung (2026-06-20): Notification-Handling fehlt vollständig.**

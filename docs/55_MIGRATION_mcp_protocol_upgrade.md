@@ -258,8 +258,46 @@ parallel gepflegt. Ein kurzer Übergang, in dem der alte Pfad noch antwortet, is
 **Ziel:** Auth-Modell der Ziel-Revision (z. B. OAuth2-Resource-Server) gegen unser Bearer/JWT
 abgleichen, **ohne** fail-closed aufzuweichen.
 
-- [ ] **4.1 Gap-Analyse Auth.** Verlangt die Ziel-Revision Metadaten (z. B. WWW-Authenticate,
-      Resource-Indicators)? Pflicht vs. optional aus Delta-Matrix.
+- [x] **4.1 Gap-Analyse Auth — erledigt (2026-06-21, reine Analyse, kein Code).** Ist-Zustand
+      **code-belegt** gegen `auth.rs` + `transport.rs` aufgenommen und gegen die Ziel-Revision
+      `2025-11-25` (ADR-008 §A-2/A-3) klassifiziert.
+
+      **Ist-Zustand (verifiziert):**
+      - **Wir sind faktisch bereits ein OAuth-Resource-Server.** `JwtAuthResolver`/`JwksAuthResolver`
+        (`auth.rs`) validieren **extern** ausgestellte Bearer-JWTs: Issuer **Pflicht** (`set_issuer`),
+        Audience optional (`MCP_JWT_AUDIENCE`), `exp` erzwungen, Rollen-Whitelist
+        (`reader|navigator|validator`, unbekannt → Abweisung), JWKS-`kid`-Rotation, **fail-closed**
+        bis zum ersten Schlüsselabruf. Identität nie aus Tool-Parametern (ADR-002).
+      - **Transport-Fehlerform:** fehlendes/ungültiges Credential → JSON-RPC **`-32001`** im Body
+        bei **HTTP 200** (`transport.rs`, `bearer()` + `codes::UNAUTHORIZED`). **Kein** HTTP **401**,
+        **kein `WWW-Authenticate`**-Header.
+      - **Keine Discovery-Fläche:** es existiert **kein** `.well-known/oauth-protected-resource`
+        (RFC 9728) und **keine** OIDC-/AS-Discovery.
+
+      **Klassifikation Pflicht vs. optional (gegen `2025-11-25`):**
+
+      | Delta (ADR-008) | Spec-Stärke | Ist | Einordnung |
+      | --- | --- | --- | --- |
+      | Resource-Server-**Token-Validierung** (`2025-06-18` #3) | Kern | **vorhanden** (JWT/JWKS, fail-closed) | **erfüllt** — Substanz steht, nur nicht „beworben" |
+      | Protected-Resource-**Metadata** `.well-known` (RFC 9728, `2025-11-25` #15) | **SHOULD/optional** (mit `WWW-Authenticate`-Fallback) | fehlt | **optional-empfohlen** → 4.2 additiv |
+      | **`WWW-Authenticate`** auf 401 (`2025-11-25` #3/#15) | optional | fehlt | **an Streamable HTTP gebunden** → mit Phase 3, **nicht** Legacy-`/rpc` |
+      | OIDC-Discovery 1.0 (`2025-11-25` #1) | optional | fehlt | **ausgeschlossen** — wir sind reiner RS, kein Authorization-Server |
+      | Inkrementeller Scope-Consent (`2025-11-25` #3) | optional | fehlt | **ausgeschlossen** — kein Scope-Modell (RBAC via Rolle, nicht OAuth-Scopes) |
+      | OAuth Client-ID-Metadata-Docs (`2025-11-25` #8) | optional | n/a | **irrelevant** — client-seitig |
+      | Security-Best-Practices-Seite (`2025-06-18` #5) | GEÄNDERT (Doku) | teilweise (ADR-002/SECURITY.md) | **betrifft uns** → 4.x Doku-Abgleich |
+
+      **Kernbefund / Designspannung (für 4.2 + Phase 3 bindend):** Der heutige **200+Body-`-32001`**-Pfad
+      ist **kein** Bug, sondern genau das, was die **zwei header-losen Alt-Clients** (ansV,
+      syllogismus-fedlex; rufen `/rpc` ohne `initialize`) brauchen. Ein **401 + `WWW-Authenticate`**
+      ist die **Streamable-HTTP**-Konvention und gehört deshalb an den **neuen** Transport (Phase 3),
+      während Legacy-`/rpc` übergangsweise bei 200+Body bleibt. Damit ist **keine** Pflicht-Lücke
+      offen, die einen harten Schnitt erzwingt: Auth-Konformität für `2025-11-25` ist **additiv**
+      erreichbar, **ohne** fail-closed (ADR-002) aufzuweichen.
+      > **Folge-Arbeit (4.2):** `.well-known/oauth-protected-resource` als statisches, ungeschütztes
+      > Metadaten-Dokument (Issuer, unterstützte Verfahren) bereitstellen; `WWW-Authenticate` nur auf
+      > dem 401-Pfad des neuen Transports. **Bewusst ausgeschlossen:** OIDC-/AS-Discovery,
+      > Scope-Consent (kein OAuth-Scope-Modell), Client-ID-Metadata (client-seitig).
+
 - [ ] **4.2 Additiv ergänzen.** Fehlende Pflicht-Header/Discovery-Dokumente bereitstellen;
       bestehende JWT/JWKS-Kette (ADR-002) bleibt gültig.
 - [ ] **4.3 Negativtests.** Fehlendes/abgelaufenes/falsches Token weiterhin hart abgelehnt;
@@ -433,7 +471,7 @@ automatisiert (6.4); Image-Pin aus 1.5 erledigt.
 | --- | --- | --- | --- |
 | Transport-Deprecation bricht ansV | mittel | hoch | Doppelpfad (Phase 3), ansV zuerst (Phase 7), Default-Flip zuletzt (Phase 6) |
 | ansV ohne `initialize` zerbricht an Pflicht-Handshake | mittel | hoch | Default-Version für fehlende Client-Version beibehalten (2.2) |
-| Auth-Modell verlangt Pflicht-Metadaten | niedrig–mittel | mittel | additive Header/Discovery (Phase 4), fail-closed unangetastet |
+| Auth-Modell verlangt Pflicht-Metadaten | ~~niedrig–mittel~~ → **niedrig (4.1 entkräftet)** | mittel | **Gap-Analyse 4.1 (erledigt):** Token-Validierung erfüllt; Discovery/`WWW-Authenticate` sind **SHOULD/optional**, additiv in 4.2/Phase 3, fail-closed unangetastet |
 | Falsche Provenance (Doku ≠ Verhalten) | niedrig | hoch (Vertrauensbruch) | **automatisierter Drift-Test (6.4, erledigt)**: README/CHANGELOG vs. `DEFAULT_PROTOCOL_VERSION`; MCP-Badge erst in 8.3 |
 | Stiller Bruch der Datenschicht | niedrig | hoch | Konformanzlauf als Gate (8.2) |
 | Kein exakter Image-Rollback: Deployment auf `:latest` (`imagePullPolicy: Always`) | ~~hoch~~ → **entschärft (1.5)** | hoch | Deployment auf Digest `@sha256:…911d3` + `IfNotPresent` gepinnt (k3-infra Commit `f9abdd3`); exakter Rollback-Anker steht |
