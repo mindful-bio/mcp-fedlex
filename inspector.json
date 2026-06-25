@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "fedlex": {
+      "type": "streamable-http",
+      "url": "http://localhost:8090/mcp",
+      "note": "Lokaler mcp-fedlex Reader (docker compose, MCP_HOST_PORT=8090). Token = MCP_DEV_TOKEN aus .env.",
+      "headers": {
+        "Authorization": "Bearer dev-secret-change-me"
+      }
+    }
+  }
+}

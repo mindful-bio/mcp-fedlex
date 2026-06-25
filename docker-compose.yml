@@ -33,7 +33,9 @@ services:
       REDIS_URL: redis://redis:6379
       BIND_ADDR: 0.0.0.0:8080
     ports:
-      - "8080:8080"
+      # Host-Port ist überschreibbar (Default 8080), falls 8080 lokal belegt ist:
+      #   MCP_HOST_PORT=8090 docker compose up
+      - "${MCP_HOST_PORT:-8080}:8080"
     depends_on:
       redis:
         condition: service_healthy

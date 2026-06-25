@@ -5,58 +5,84 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-edition%202024-orange.svg)](./Cargo.toml)
 
-Ein **Model-Context-Protocol-Server für Fedlex** (Schweizer Bundesrecht) — ein
-mindful.bio-Produkt. Er gibt einem LLM **belegbaren** Zugriff auf konsolidiertes
-Bundesrecht, statt es frei formulieren zu lassen:
+🇬🇧 English · [🇩🇪 Deutsch](./README.de.md) · [🇫🇷 Français](./README.fr.md) · [🇮🇹 Italiano](./README.it.md)
 
-- 📌 **Provenance per Konstruktion** — jede Antwort trägt ihren `eli` und den
-  `valid_as_of`-Stichtag. Der Stichtag wird **serverseitig gestempelt** und kann
-  von keinem Tool-Argument verfälscht werden.
-- 🔒 **Least-Privilege-RBAC** — 22 Werkzeuge in drei Pools, nach Rolle gefiltert
-  (Reader ⊆ Navigator ⊆ Validator).
-- 🧯 **Mandantentrennung & Quota** — pro Token serverseitig durchgesetzt
-  (verteiltes Token-Bucket über Redis).
-- 🦀 **Rust, kein Netz im Test** — Unit-/Integrationstests laufen offline;
-  Live-Konformanz gegen Fedlex ist separat (`-- --ignored`).
 
-> **Hinweis:** Dieses GitHub-Repository ist ein **öffentlicher Spiegel**. Die
-> Quelle der Wahrheit (CI/CD, Releases) liegt auf einer selbst-gehosteten GitLab;
-> Issues und PRs hier werden gesichtet, aber dort verarbeitet.
+A **Model-Context-Protocol server for Fedlex** (Swiss federal law) — a product of
+[mindful.bio](https://mindful.bio). It gives an LLM **citable** access to
+consolidated federal law instead of letting it free-form its answers:
 
-## Was er kann
+> 📖 **Full project description** (five languages: tools, quickstart,
+> architecture): **[mcp-fedlex.ch](https://mcp-fedlex.ch)**.
+> Live application platform built on top of this server: **[ansv.ch](https://ansv.ch)**.
+> See also the [Ecosystem](#ecosystem) section below.
 
-22 Werkzeuge in drei Pools, RBAC-gefiltert (Reader ⊆ Navigator ⊆ Validator):
+- 📌 **Provenance by construction** — every answer carries its `eli` and the
+  `valid_as_of` point-in-time date. The date is **stamped server-side** and
+  cannot be tampered with by any tool argument. Structurally distinguished: a
+  **norm citation** (`kind: "norm"`) vs. a **discovery hint** (`kind: "hint"`, a
+  candidate — *not* a citation), so a reasoner never accidentally records a hit
+  as a cited norm.
+- 🔒 **Least-privilege RBAC** — 25 tools across four active pools, filtered by
+  role (Reader ⊆ Navigator ⊆ Validator). Identity always comes from the verified
+  credential, never from an LLM parameter.
+- 🧯 **Tenant isolation & quota** — enforced server-side per token (distributed,
+  fail-closed token bucket over Redis); live discovery weighs more heavily in the
+  quota than local navigation, to protect the public Fedlex endpoint.
+- 🧾 **Audit log per call** — every `tools/call` line records tenant, session,
+  tool, ELID and point-in-time date; raw arguments and response content are
+  fail-closed redacted (PII scrubber, ADR-001).
+- 🦀 **Rust, no network in tests** — unit and integration tests run offline;
+  live conformance against Fedlex is separate (`-- --ignored`).
 
-**Navigation im Erlasstext (AKN, Pool LocalNavigation)**
-`read_article` · `read_element` · `get_structure` · `search_text` · `get_metadata`
-· `read_document` · `get_references` · `get_modifications` — plus `compare_versions`
-(Versionsvergleich, Pool Validation).
+> **Note:** This GitHub repository is a **public mirror**. The source of truth
+> (CI/CD, releases) lives on a self-hosted GitLab; issues and PRs here are
+> triaged but processed there.
 
-**Auffinden von Erlassen (Discovery)**
-`search_law` · `resolve_sr_number` · `find_related_topic`.
+## What it can do
 
-**Metadaten & Beziehungen (JOLux, Pool JoluxMetadata)**
+25 tools across four active pools, RBAC-filtered (Reader ⊆ Navigator ⊆ Validator).
+The **Reader** sees only `LocalNavigation`; **Navigator** (how ansV runs) also gets
+`Discovery` and `JoluxMetadata`; **Validator** additionally gets `Validation`.
+
+**Navigation within the act text (AKN, pool `LocalNavigation`, 11 tools)**
+`read_article` · `read_element` · `read_document` · `get_structure` · `search_text`
+· `get_metadata` · `get_references` · `get_modifications` · `list_components`
+· `extract_tables` · `detect_foreign_content`.
+
+**Discovering acts (pool `Discovery`, 3 tools)**
+`search_law` · `resolve_sr_number` · `find_related_topic`. Hits carry
+**hint provenance** (`kind: "hint"`) — candidates, not norm citations.
+
+**Metadata & relationships (JOLux, pool `JoluxMetadata`, 10 tools)**
 `check_in_force` · `list_versions` · `resolve_consolidation_at` · `get_impacts` ·
 `get_outgoing_impacts` · `get_article_history` · `get_citations` · `get_taxonomy` ·
 `get_subdivisions` · `list_annexes`.
 
-## In 2 Minuten lokal
+**Validation (pool `Validation`, 1 tool)**
+`compare_versions` (version comparison, Validator only).
 
-Voraussetzung: Docker mit Compose. Keine Rust-Toolchain nötig.
+> `Discovery` and `JoluxMetadata` go **live** to the public Fedlex SPARQL endpoint
+> and weigh more heavily in the quota (cost weight 5 instead of 1), whereas
+> `LocalNavigation` is served from the pod's manifestation cache.
+
+## Up and running locally in 2 minutes
+
+Prerequisite: Docker with Compose. No Rust toolchain needed.
 
 ```bash
-cp .env.example .env          # Dev-Token & Co. setzen (Defaults reichen zum Testen)
-docker compose up --build     # Reader + Redis hochfahren
+cp .env.example .env          # set dev token & co. (defaults are fine for testing)
+docker compose up --build     # bring up Reader + Redis
 ```
 
-Der Reader lauscht dann auf `http://localhost:8080`. Health prüfen:
+The Reader then listens on `http://localhost:8080`. Check health:
 
 ```bash
-curl -s http://localhost:8080/livez      # -> "ok" (Liveness)
-curl -s http://localhost:8080/readyz      # -> prüft Redis + Fedlex-SPARQL
+curl -s http://localhost:8080/livez      # -> "ok" (liveness)
+curl -s http://localhost:8080/readyz      # -> checks Redis + Fedlex SPARQL
 ```
 
-Werkzeuge auflisten (Dev-Token aus deiner `.env`):
+List tools (dev token from your `.env`):
 
 ```bash
 TOKEN=dev-secret-change-me
@@ -66,7 +92,7 @@ curl -s -X POST http://localhost:8080/rpc \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq
 ```
 
-Einen Artikel der Bundesverfassung zum Stichtag lesen:
+Read an article of the Federal Constitution as of a given date:
 
 ```bash
 curl -s -X POST http://localhost:8080/rpc \
@@ -82,20 +108,31 @@ curl -s -X POST http://localhost:8080/rpc \
       }' | jq
 ```
 
-Die Antwort enthält den Normtext **und** einen `provenance`-Block (`eli`, `valid_as_of`).
-Der optionale `as_of`-Parameter (ISO `YYYY-MM-DD`) steuert den Stichtag; ohne ihn gilt
-heute.
+The response contains the norm text **and** a `provenance` block (`eli`, `valid_as_of`).
+The optional `as_of` parameter (ISO `YYYY-MM-DD`) controls the point-in-time date;
+without it, today applies.
 
-## An einen MCP-Client anbinden
+## Connecting to an MCP client
 
-Der Server spricht MCP über SSE/JSON-RPC (Protokoll `2025-11-25`; ein explizit
-`2024-11-05` anfragender Alt-Client erhält weiterhin `2024-11-05`):
+The server speaks MCP over JSON-RPC (protocol `2025-11-25`; a legacy client
+explicitly requesting `2024-11-05` still gets `2024-11-05`). There are three
+HTTP routes:
 
-- **SSE-Strom:** `GET /sse` — liefert die POST-Adresse für Nachrichten.
-- **JSON-RPC:** `POST /rpc` — Methoden `initialize`, `tools/list`, `tools/call`.
-- **Auth:** Bearer-Token im `Authorization`-Header bei **jeder** Anfrage.
+- **`POST /mcp`** — the **Streamable HTTP endpoint** of the target revision
+  `2025-11-25` (recommended). Enforces two transport guards *before* any work:
+  a foreign `Origin` header is rejected with **403** (DNS rebinding protection),
+  a set but unsupported `MCP-Protocol-Version` header with **400**.
+- **`POST /rpc`** — the legacy endpoint (same `McpService` chain without the two
+  guards). Kept for handshake-less legacy clients.
+- **`GET /sse`** — opens the SSE stream and announces `/rpc` as the POST address.
 
-Beispiel `initialize`:
+Methods: `initialize` (handshake with version negotiation), `tools/list`
+(RBAC-filtered), `tools/call` (quota-throttled, through the provenance gate),
+`ping` (keep-alive), plus the `notifications/initialized` notification
+(acknowledged with **202 Accepted** and no body). **Auth:** Bearer token in the
+`Authorization` header on **every** request (except notifications).
+
+`initialize` example:
 
 ```bash
 curl -s -X POST http://localhost:8080/rpc \
@@ -106,62 +143,103 @@ curl -s -X POST http://localhost:8080/rpc \
 #      "capabilities":{"tools":{}} }
 ```
 
-> Ohne `protocolVersion` im Request handelt der Server die Default-Revision
-> `2025-11-25` aus. Ein Client, der explizit `"protocolVersion":"2024-11-05"`
-> sendet, erhält weiterhin `2024-11-05` (Rückwärtskompatibilität für Alt-Clients).
+> Without `protocolVersion` in the request, the server negotiates the default
+> revision `2025-11-25`. A client that explicitly sends
+> `"protocolVersion":"2024-11-05"` still gets `2024-11-05` (backward
+> compatibility for legacy clients).
 
-Für Clients mit JSON-Konfiguration (z. B. Claude Desktop über einen SSE/HTTP-Bridge-
-Connector) genügen Basis-URL `http://localhost:8080` und das Bearer-Token.
+For clients with JSON configuration (e.g. Claude Desktop via an SSE/HTTP bridge
+connector), the base URL `http://localhost:8080` and the Bearer token suffice.
 
-## Konfiguration
+### Inspecting it in the browser (MCP Inspector)
 
-Die gesamte Konfiguration läuft über Umgebungsvariablen. Vollständige Referenz mit
-Defaults und Pflichtangaben: **[`docs/70_CONFIG.md`](./docs/70_CONFIG.md)**. Das
-Rollen- und Token-Modell (Dev-Token vs. JWT/JWKS) steht in
+To click through the tools interactively, use the official
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector). A ready-made
+[`inspector.json`](./inspector.json) ships with this repo, so a single command
+connects with URL **and** token pre-filled — no manual UI fiddling:
+
+```bash
+npx -y @modelcontextprotocol/inspector --config inspector.json --server fedlex
+```
+
+The Inspector opens in your browser already connected; pick the **Tools** tab,
+e.g. `read_article` with `eli = eli/cc/1999/404` and `eid = art_1`.
+
+`inspector.json` points at `http://localhost:8090/mcp` because the host port is
+overridable — if `8080` is already taken, start the server with a different one:
+
+```bash
+MCP_HOST_PORT=8090 docker compose up --build   # in-container port stays 8080
+```
+
+The container always listens on `8080`; `MCP_HOST_PORT` only remaps the host side
+(see `docker-compose.yml`). Keep the value in `inspector.json` in sync with it.
+
+> Configuring it by hand instead? Transport **Streamable HTTP**, URL
+> `http://localhost:8090/mcp`, and an enabled `Authorization: Bearer <token>`
+> header. The token defaults to `dev-secret-change-me` (your `.env`).
+
+## Configuration
+
+All configuration runs through environment variables. Full reference with defaults
+and required fields: **[`docs/70_CONFIG.md`](./docs/70_CONFIG.md)**. The role and
+token model (dev token vs. JWT/JWKS) is in
 **[`docs/90_AUTH_AND_ROLES.md`](./docs/90_AUTH_AND_ROLES.md)**.
 
-> Das Compose-Setup ist für **Entwicklung** gedacht (Klartext-Redis, statisches
-> Dev-Token). Produktiver Betrieb auf Kubernetes (JWT/JWKS, Redis-mTLS, SealedSecrets):
+> The Compose setup is meant for **development** (plaintext Redis, static dev
+> token). Production operation on Kubernetes (JWT/JWKS, Redis mTLS, SealedSecrets):
 > **[`docs/80_DEPLOY.md`](./docs/80_DEPLOY.md)**.
 
-## Versioniertes Image beziehen
+## Pulling a versioned image
 
-Für Fremdnutzung gibt es **zitierbare SemVer-Images** (unveränderlich, an einen
-Git-Tag gebunden) zusätzlich zu den rollenden Tags des internen Continuous-Deploy:
+For third-party use there are **citable SemVer images** (immutable, bound to a
+Git tag) in addition to the rolling tags of the internal continuous deploy:
 
-| Tag | Zweck | Stabilität |
-|-----|-------|-----------|
-| `:v0.2.0` | zitierbares Release (an Git-Tag `v0.2.0`, MCP `2025-11-25`) | unveränderlich — **für Fremdnutzer empfohlen** |
-| `:v0.1.0` | älteres Release (an Git-Tag `v0.1.0`, MCP `2024-11-05`) | unveränderlich |
-| `:latest` | jeweils letzter `main`-Stand | rollend |
-| `:<short-sha>` | exakter Commit | unveränderlich, intern |
+| Tag | Purpose | Stability |
+|-----|---------|-----------|
+| `:v0.2.0` | citable release (bound to Git tag `v0.2.0`, MCP `2025-11-25`) | immutable — **recommended for third parties** |
+| `:v0.1.0` | older release (bound to Git tag `v0.1.0`, MCP `2024-11-05`) | immutable |
+| `:latest` | latest `main` state | rolling |
+| `:<short-sha>` | exact commit | immutable, internal |
 
 ```bash
 docker pull registry.mindful-server.com/mindful-bio/mcp-fedlex:v0.2.0
 ```
 
-Releases sind in [`CHANGELOG.md`](./CHANGELOG.md) dokumentiert; die gemeldete
-`serverInfo.version` (siehe `initialize`) entspricht dem SemVer aus `Cargo.toml`.
-Ein neues Release entsteht durch einen Git-Tag `vX.Y.Z` — die CI baut daraus
-automatisch das gleichnamige Image.
+Releases are documented in [`CHANGELOG.md`](./CHANGELOG.md); the reported
+`serverInfo.version` (see `initialize`) matches the SemVer from `Cargo.toml`.
+A new release is created by a Git tag `vX.Y.Z` — CI automatically builds the
+identically named image from it.
 
-## Aus dem Quellcode bauen & testen
+## Building & testing from source
 
 ```bash
 cargo build --workspace
-cargo test  --workspace                 # Unit-/Integrationstests, kein Netzwerk
-cargo test  --workspace -- --ignored      # Live-Konformanz gegen Fedlex (Netzwerk)
+cargo test  --workspace                 # unit/integration tests, no network
+cargo test  --workspace -- --ignored      # live conformance against Fedlex (network)
 ```
 
-## Architektur & Entscheidungen
+## Architecture & decisions
 
-- LikeC4-Architekturplan: [`likec4/`](./likec4)
-- Capability-Lexikon (JOLux-Funktionsraum): [`docs/10_LEXICON_jolux.md`](./docs/10_LEXICON_jolux.md)
-- Umsetzungsplan & Checkliste: [`docs/30_PLAN.md`](./docs/30_PLAN.md)
-- Offene Punkte & Nutzbarkeit: [`docs/60_OPEN_ITEMS_AND_USABILITY.md`](./docs/60_OPEN_ITEMS_AND_USABILITY.md)
+- LikeC4 architecture plan: [`likec4/`](./likec4)
+- Capability lexicon (JOLux function space): [`docs/10_LEXICON_jolux.md`](./docs/10_LEXICON_jolux.md)
+- Implementation plan & checklist: [`docs/30_PLAN.md`](./docs/30_PLAN.md)
+- Open items & usability: [`docs/60_OPEN_ITEMS_AND_USABILITY.md`](./docs/60_OPEN_ITEMS_AND_USABILITY.md)
+- Review findings (living register): [`docs/65_REVIEW_FINDINGS.md`](./docs/65_REVIEW_FINDINGS.md)
 - Architecture Decision Records: [`docs/adr/`](./docs/adr)
-- Mitwirken: [`CONTRIBUTING.md`](./CONTRIBUTING.md) · Sicherheit: [`SECURITY.md`](./SECURITY.md)
+- Contributing: [`CONTRIBUTING.md`](./CONTRIBUTING.md) · Security: [`SECURITY.md`](./SECURITY.md)
 
-## Lizenz
+## Ecosystem
+
+`mcp-fedlex` is the provenance-guaranteed data layer of a small product family by
+[mindful.bio](https://mindful.bio):
+
+| Project | What it is | Link |
+|---------|-----------|------|
+| **mcp-fedlex** (this repo) | The MCP server: citable, point-in-time-accurate access to Swiss federal law. Full, five-language project description (tools, quickstart, architecture). | **[mcp-fedlex.ch](https://mcp-fedlex.ch)** |
+| **ansV** | The **application platform** that uses this server as a Navigator client — legal analyses with a traceable chain of evidence. | **[ansv.ch](https://ansv.ch)** |
+| **mindful.bio** | The company behind both projects. | **[mindful.bio](https://mindful.bio)** |
+
+## License
 
 [Apache-2.0](./LICENSE) © mindful.bio
